@@ -25,7 +25,7 @@ async function loadFonts(pdf) {
       if (!r.ok) throw new Error('Font failed to load');
       return r.arrayBuffer();
     });
-    const [regular, medium] = await Promise.all([get('Jost-Regular.ttf'), get('Jost-Medium.ttf')]);
+    const [regular, medium] = await Promise.all([get('Manrope-Regular.ttf'), get('Manrope-SemiBold.ttf')]);
     fontCache = { regular, medium };
   }
   return {
