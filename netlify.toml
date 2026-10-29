@@ -45,6 +45,16 @@
   to = "/portfolio"
   status = 301
 
+# Short address for the back office
+[[redirects]]
+  from = "/office"
+  to = "/admin/"
+  status = 301
+[[redirects]]
+  from = "/office/*"
+  to = "/admin/"
+  status = 301
+
 # The back office is one page; every /admin path loads it
 [[redirects]]
   from = "/admin/*"

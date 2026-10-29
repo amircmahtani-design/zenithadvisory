@@ -30,7 +30,7 @@ Deployed by Netlify from the `main` branch of this repository. There is no build
 2. **Database.** Netlify Database is provisioned automatically on the first deploy because `@netlify/database` is a dependency. It needs a credit-based Netlify plan; if a deploy reports that the database feature is not available, the plan must be upgraded or the storage switched.
 3. **Optional email alerts for website enquiries.** Enquiries always appear in the back office under *Enquiries*. To also receive an email, add `RESEND_API_KEY` (from resend.com), `NOTIFY_EMAIL` (where to send) and optionally `NOTIFY_FROM` (a verified sender such as `Zenith website <website@zenithadvisory.ae>`).
 
-Then open `https://zenithadvisory.ae/admin`, sign in, and fill in **Business settings**: address, TRN, bank name, account holder, IBAN and SWIFT. Until then, documents show clear placeholders such as `[ADD TRN]` and `[ADD IBAN]`.
+Then open `https://zenithadvisory.ae/admin` (or `https://zenithadvisory.ae/office`, which goes to the same place), sign in, and fill in **Business settings**: address, TRN, bank name, account holder, IBAN and SWIFT. Until then, documents show clear placeholders such as `[ADD TRN]` and `[ADD IBAN]`.
 
 ## How documents work
 
