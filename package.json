@@ -1,0 +1,17 @@
+{
+  "name": "zenithadvisory",
+  "private": true,
+  "type": "module",
+  "description": "Zenith Advisory Services website and private back office",
+  "engines": { "node": ">=20.12.2" },
+  "scripts": {
+    "dev": "node scripts/dev-server.mjs"
+  },
+  "dependencies": {
+    "@netlify/database": "^2.0.1"
+  },
+  "devDependencies": {
+    "@netlify/dev": "^5.1.12",
+    "@netlify/functions": "^6.0.3"
+  }
+}

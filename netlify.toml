@@ -1,2 +1,80 @@
 [build]
   publish = "."
+
+[functions]
+  node_bundler = "esbuild"
+
+# Pages from the previous site now live inside /advisory
+[[redirects]]
+  from = "/services"
+  to = "/advisory#services"
+  status = 301
+[[redirects]]
+  from = "/services.html"
+  to = "/advisory#services"
+  status = 301
+[[redirects]]
+  from = "/approach"
+  to = "/advisory#approach"
+  status = 301
+[[redirects]]
+  from = "/approach.html"
+  to = "/advisory#approach"
+  status = 301
+[[redirects]]
+  from = "/industries"
+  to = "/advisory#who"
+  status = 301
+[[redirects]]
+  from = "/industries.html"
+  to = "/advisory#who"
+  status = 301
+
+# The back office is one page; every /admin path loads it
+[[redirects]]
+  from = "/admin/*"
+  to = "/admin/index.html"
+  status = 200
+
+# Source files that must never be served
+[[redirects]]
+  from = "/netlify/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/scripts/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/package*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/README.md"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000"
+
+[[headers]]
+  for = "/admin/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "no-cache"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
