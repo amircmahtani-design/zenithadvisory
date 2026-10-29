@@ -21,8 +21,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Jost:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/css/site.css">
-<link rel="preload" as="image" href="/assets/img/hero-dubai.webp" media="(min-width: 768px)">
-<link rel="preload" as="image" href="/assets/img/hero-dubai-portrait.webp" media="(max-width: 767px)">
+<link rel="preload" as="image" href="/assets/img/hero-desktop.webp" media="(min-width: 1024px), (orientation: landscape)">
+<link rel="preload" as="image" href="/assets/img/hero-mobile.webp" media="(max-width: 1023px) and (orientation: portrait)">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -40,20 +40,20 @@
 <main id="main">
 <section class="hero">
   <picture class="hero-media">
-    <source media="(max-width: 767px)" srcset="/assets/img/hero-dubai-portrait.webp">
-    <img src="/assets/img/hero-dubai.webp" alt="Dubai skyline at golden hour, with the Burj Khalifa rising over Sheikh Zayed Road" width="2400" height="1600" fetchpriority="high">
+    <source media="(max-width: 1023px) and (orientation: portrait)" srcset="/assets/img/hero-mobile.webp" width="941" height="1672">
+    <img src="/assets/img/hero-desktop.webp" alt="Dubai skyline at sunset, with an illuminated limestone staircase rising toward the Zenith summit mark" width="1942" height="809" fetchpriority="high">
   </picture>
   <div class="wrap">
     <div class="hero-copy">
-      <span class="eyebrow reveal-load">Strategy / Design / Long-term impact</span>
+      <span class="eyebrow reveal-load">Strategy / Design / Impact</span>
       <h1 class="reveal-load d1"><span class="line">Clear direction.</span> <span class="line gold">Websites with presence.</span></h1>
       <p class="lede reveal-load d2">Strategic advisory and bespoke digital experiences for ambitious businesses.</p>
       <div class="actions reveal-load d3">
         <a class="btn btn-gold" href="/work">Explore our work <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12h15m-5-6 6 6-6 6"/></svg></a>
-        <a class="btn btn-line" href="/contact">Start a project</a>
+        <a class="btn btn-line" href="/contact">Start a project <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 12h15m-5-6 6 6-6 6"/></svg></a>
       </div>
     </div>
-    <div class="hero-meta reveal-load d3"><span>Strategic advisory</span><span>Website design &amp; development</span><span>UAE &middot; Spain &middot; Greece</span></div>
+    <a class="scroll-cue" href="#practices-title">Scroll to explore</a>
   </div>
 </section>
 
