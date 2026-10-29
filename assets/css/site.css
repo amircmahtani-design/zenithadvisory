@@ -81,10 +81,13 @@ em.gold,.gold{color:var(--gold)}
 .dark .rule{background:var(--line-dark)}
 
 /* Section heading pair: title left, supporting copy right */
-.head-split{display:grid;gap:var(--s5);align-items:end}
-@media (min-width:960px){.head-split{grid-template-columns:1.15fr .85fr;gap:var(--s9)}}
-.head-split .aside{display:grid;gap:var(--s4);justify-items:start}
-.head-split .aside p{font-size:var(--step-1);line-height:1.6}
+/* Section titles are centred; the text beneath reads as a normal left-aligned paragraph in a centred column */
+.head-split{display:grid;gap:var(--s5);justify-items:center;text-align:center}
+.head-split .eyebrow::before{display:none}
+.head-split h2{max-width:22ch}
+.head-split .aside{display:grid;gap:var(--s4);justify-items:center;max-width:62ch;text-align:left}
+.head-split .aside p{font-size:var(--step-1);line-height:1.6;max-width:none}
+.head-split .aside p.quote{text-align:center}
 
 /* ---------- Buttons and links ---------- */
 /* Pill buttons with a raised, lit-from-above finish */
@@ -223,7 +226,7 @@ em.gold,.gold{color:var(--gold)}
 /* ---------- Two practices (home) ---------- */
 .center-head{display:grid;gap:var(--s4);justify-items:center;text-align:center;max-width:780px;margin:0 auto var(--s7)}
 .center-head .eyebrow::before{display:none}
-.center-head p{max-width:60ch}
+.center-head p{max-width:62ch;text-align:left}
 /* Two matching cards; subgrid keeps label, title, text, list and button on the same lines */
 .practices{display:grid;gap:var(--s5);grid-template-rows:repeat(5,auto)}
 @media (min-width:860px){.practices{grid-template-columns:1fr 1fr}}
@@ -348,8 +351,13 @@ em.gold,.gold{color:var(--gold)}
 .dark .col p{color:var(--on-dark-2)}
 
 /* Split: prose + side */
-.split{display:grid;gap:var(--s7)}
-@media (min-width:960px){.split{grid-template-columns:.9fr 1.1fr;gap:var(--s9)}}
+.split{display:grid;gap:var(--s6);justify-items:center}
+.split>h2,.split>h3{text-align:center;max-width:22ch}
+.split>.stack{display:grid;justify-items:center;text-align:center}
+.split>.stack .eyebrow::before{display:none}
+.split>.stack h2{max-width:22ch}
+.split>.prose,.split>.stack-lg,.split>.faq{width:min(100%,62ch)}
+.split>.cols{width:100%}
 .prose{display:grid;gap:var(--s5)}
 .prose p{color:var(--ink-2)}
 .dark .prose p{color:var(--on-dark-2)}
@@ -467,13 +475,6 @@ ol.process{margin:0;padding:0;list-style:none}
 @media (max-width:767px){
   :root{--section:56px}
   .section-tight{padding-block:48px}
-  /* Section headings and their intro text centred, lists and body copy stay left for easy reading */
-  .head-split,.split>h2,.split>h3,.split>.stack{text-align:center;justify-items:center}
-  .head-split .aside{justify-items:center}
-  .head-split .aside p,.split>.stack p{margin-inline:auto}
-  .split>h2,.split>h3{margin-inline:auto;max-width:20ch}
-  .eyebrow{justify-content:center}
-  .head-split .eyebrow::before,.split .eyebrow::before{display:none}
   .prose p:first-child{font-size:var(--step-1);line-height:1.45}
   .split{gap:var(--s5)}
   .cols{gap:var(--s5);margin-top:var(--s6)}
@@ -513,3 +514,7 @@ ol.process{margin:0;padding:0;list-style:none}
 .pager-count{margin:var(--s4) auto 0;text-align:center;font-size:var(--step--1);color:var(--ink-3)}
 @media (hover:hover) and (pointer:fine){.pager-num:not([aria-current]):hover{transform:translateY(-2px)}.pager-step.next:hover svg{transform:translateX(3px)}.pager-step:not(.next):hover svg{transform:rotate(180deg) translateX(3px)}}
 @media (max-width:559px){.pager{grid-template-columns:1fr 1fr;row-gap:var(--s5)}.pager-nums{grid-column:1 / -1;grid-row:1;justify-content:center}}
+
+/* Menu open: solid header, page behind cannot scroll */
+.nav-open,.nav-open body{overflow:hidden;overscroll-behavior:none}
+.nav-open .site-head{background:var(--navy-950)!important;box-shadow:none}
