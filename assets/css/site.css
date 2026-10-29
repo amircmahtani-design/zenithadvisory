@@ -461,3 +461,42 @@ em.gold,.gold{color:var(--gold)}
   @keyframes fade{to{opacity:1}}
 }
 @media print{.site-head,.site-foot,.cta{display:none}}
+
+/* ---------- Phone refinements ---------- */
+ol.process{margin:0;padding:0;list-style:none}
+@media (max-width:767px){
+  :root{--section:56px}
+  .section-tight{padding-block:48px}
+  /* Section headings and their intro text centred, lists and body copy stay left for easy reading */
+  .head-split,.split>h2,.split>h3,.split>.stack{text-align:center;justify-items:center}
+  .head-split .aside{justify-items:center}
+  .head-split .aside p,.split>.stack p{margin-inline:auto}
+  .split>h2,.split>h3{margin-inline:auto;max-width:20ch}
+  .eyebrow{justify-content:center}
+  .head-split .eyebrow::before,.split .eyebrow::before{display:none}
+  .prose p:first-child{font-size:var(--step-1);line-height:1.45}
+  .split{gap:var(--s5)}
+  .cols{gap:var(--s5);margin-top:var(--s6)}
+  .col{padding-top:var(--s4)}
+  .process{margin-top:var(--s6)}
+  .process li{padding:var(--s5) 0}
+  .detail{padding-block:var(--s6)}
+  .services{margin-top:var(--s6)}
+  .service{padding:var(--s6) 0}
+  /* Footer in two columns */
+  .site-foot .top{grid-template-columns:1fr 1fr;gap:var(--s6) var(--s5);padding-block:var(--s7)}
+  .site-foot .about{grid-column:1 / -1}
+  .site-foot .bottom{flex-direction:column;gap:var(--s1)}
+  /* Contact: the form comes first */
+  .contact-grid{gap:var(--s7)}
+  .contact-grid .form-panel{order:-1}
+  .contact-card{gap:var(--s4)}
+}
+/* Inner heroes on upright phones: copy sits in the open sky, clear of the skyline */
+@media (max-width:767px) and (orientation:portrait){
+  .page-hero.has-art{min-height:max(640px,100svh)}
+  .page-hero.has-art .wrap{padding-top:calc(var(--head-h) + var(--s6))}
+  .page-hero.has-art h1{font-size:clamp(2.2rem,9vw,2.8rem)}
+  .page-hero.has-art .lede{font-size:var(--step-0);line-height:1.55}
+  .page-hero.has-art::before{background:linear-gradient(180deg,rgb(10 19 38 / .92) 0%,rgb(10 19 38 / .82) 40%,rgb(10 19 38 / .35) 58%,rgb(10 19 38 / 0) 72%)}
+}
