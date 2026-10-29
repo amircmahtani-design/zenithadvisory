@@ -30,6 +30,16 @@
   to = "/advisory#who"
   status = 301
 
+# Work page renamed to Portfolio
+[[redirects]]
+  from = "/work"
+  to = "/portfolio"
+  status = 301
+[[redirects]]
+  from = "/work.html"
+  to = "/portfolio"
+  status = 301
+
 # The back office is one page; every /admin path loads it
 [[redirects]]
   from = "/admin/*"
