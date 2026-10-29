@@ -8,3 +8,7 @@
 - `admin/vendor/`: pdf-lib 1.17.1 and @pdf-lib/fontkit 1.1.1 (MIT).
 
 The approved visual reference from the handoff package is a design reference only; numbers in its invoice and receipt mockups are illustrative and are not used anywhere in the site or documents.
+
+## Page heroes
+
+`assets/img/hero/{page}-laptop.webp` (from 1920 x 1080 PNG) and `{page}-mobile.webp` (from 1080 x 1920 PNG) for advisory, website-design, work, about and contact. The laptop image is used on desktop and landscape screens, the mobile image on upright phones and tablets. The mobile images are separate portrait renderings of each scene, not crops of the laptop images. To replace one, export a new image at the same size and convert it to WebP with the same file name.
