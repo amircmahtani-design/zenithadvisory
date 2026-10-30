@@ -3,6 +3,7 @@
 // Everything else requires the signed session cookie set by /api/login.
 import type { Config, Context } from "@netlify/functions";
 import { getDatabase } from "@netlify/database";
+import nodemailer from "nodemailer";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
   computeTotals, normaliseLines, documentBalance, formatNumber, todayUAE, addDays,
@@ -233,7 +234,9 @@ async function bootstrap() {
     q(`SELECT ${PAY_COLS} FROM payments ORDER BY paid_on DESC, id DESC`),
     q(`SELECT id, service, name, email, company, phone, message, page, status, created_at FROM enquiries ORDER BY created_at DESC`),
   ]);
-  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries };
+  const emails = await q(`SELECT id, client_id, document_id, payment_id, kind, to_email, cc, subject, attachment, sent_at FROM email_log ORDER BY sent_at DESC`);
+  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries, emails,
+    mail: { configured: mailConfigured(), from: mailFrom(settings) } };
 }
 
 const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
@@ -241,6 +244,9 @@ const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
   bank_name: "text", account_name: "text", account_number: "text", iban: "text", swift: "text", payment_instructions: "text",
   currency: "text", default_vat_bp: "int", prices_include_vat: "bool", payment_terms: "text", invoice_due_days: "int",
   proforma_valid_days: "int", prefix_proforma: "text", prefix_invoice: "text", prefix_credit_note: "text", prefix_receipt: "text",
+  email_from_name: "text", email_signature: "text",
+  email_proforma_subject: "text", email_proforma_body: "text", email_invoice_subject: "text", email_invoice_body: "text",
+  email_receipt_subject: "text", email_receipt_body: "text", email_reminder_subject: "text", email_reminder_body: "text",
 };
 
 async function saveSettings(body: any) {
@@ -253,7 +259,7 @@ async function saveSettings(body: any) {
       const n = Math.round(Number(body[k]));
       if (!Number.isFinite(n) || n < 0 || n > 100000) throw new HttpError(400, `Please check the value for ${k.replace(/_/g, " ")}.`);
       next[k] = n;
-    } else next[k] = str(body[k], 1000);
+    } else next[k] = str(body[k], 4000);
   }
   if (next.default_vat_bp > 10000) throw new HttpError(400, "VAT rate must be between 0% and 100%.");
   next.currency = (next.currency || "AED").toUpperCase().slice(0, 3);
@@ -451,6 +457,73 @@ async function createPayment(body: any) {
   });
 }
 
+// ---------------------------------------------------------------- email
+// Sends through Google Workspace SMTP: SMTP_USER is the Workspace mailbox, SMTP_PASS an app password,
+// MAIL_FROM the address shown to clients (an alias of SMTP_USER, e.g. finance@zenithadvisory.ae).
+
+function mailConfigured() {
+  return Netlify.env.get("MAIL_TRANSPORT") === "test" || !!(Netlify.env.get("SMTP_USER") && Netlify.env.get("SMTP_PASS"));
+}
+
+function mailFrom(settings: any) {
+  return Netlify.env.get("MAIL_FROM") || Netlify.env.get("SMTP_USER") || "";
+}
+
+function transport() {
+  if (Netlify.env.get("MAIL_TRANSPORT") === "test") return nodemailer.createTransport({ jsonTransport: true });
+  return nodemailer.createTransport({
+    host: Netlify.env.get("SMTP_HOST") || "smtp.gmail.com",
+    port: Number(Netlify.env.get("SMTP_PORT") || 465),
+    secure: Number(Netlify.env.get("SMTP_PORT") || 465) === 465,
+    auth: { user: Netlify.env.get("SMTP_USER"), pass: Netlify.env.get("SMTP_PASS") },
+  });
+}
+
+const emailList = (v: unknown) => String(v ?? "").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
+const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+
+async function sendEmail(req: Request, body: any) {
+  if (!mailConfigured()) throw new HttpError(503, "Email is not set up yet. Add SMTP_USER, SMTP_PASS and MAIL_FROM in Netlify (see README).");
+  const to = emailList(body.to), cc = emailList(body.cc);
+  if (!to.length || [...to, ...cc].some((e) => !validEmail(e))) throw new HttpError(400, "Please check the email address.");
+  const subject = str(body.subject, 300), text = String(body.text ?? "").slice(0, 20000);
+  if (!subject || !text.trim()) throw new HttpError(400, "Please add a subject and a message.");
+  const kind = ["proforma", "invoice", "credit_note", "receipt", "reminder", "general"].includes(body.kind) ? body.kind : "general";
+  const documentId = Number(body.document_id) || null, paymentId = Number(body.payment_id) || null;
+  let clientId = Number(body.client_id) || null;
+  if (documentId) clientId = (await getDoc(q, documentId)).client_id;
+  let attachments: any[] = [];
+  let attachmentName = "";
+  if (body.attachment?.data) {
+    attachmentName = str(body.attachment.filename, 200).replace(/[\\/:*?"<>|]+/g, "") || "document.pdf";
+    const buf = Buffer.from(String(body.attachment.data), "base64");
+    if (buf.length > 4 * 1024 * 1024) throw new HttpError(400, "The attachment is too large.");
+    attachments = [{ filename: attachmentName, content: buf, contentType: "application/pdf" }];
+  }
+  const settings = await getSettings();
+  const fromAddr = mailFrom(settings);
+  const fromName = settings.email_from_name || settings.legal_name || "Zenith Advisory Services";
+  try {
+    await transport().sendMail({
+      from: { name: fromName, address: fromAddr }, replyTo: fromAddr, to, cc: cc.length ? cc : undefined,
+      bcc: body.copy_me ? fromAddr : undefined, subject, text, attachments,
+    });
+  } catch (e: any) {
+    console.error("mail", e?.message);
+    throw new HttpError(502, "The email could not be sent. Please check the email settings in Netlify and try again.");
+  }
+  const row = (await q(
+    `INSERT INTO email_log (client_id, document_id, payment_id, kind, to_email, cc, subject, attachment) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     RETURNING id, client_id, document_id, payment_id, kind, to_email, cc, subject, attachment, sent_at`,
+    [clientId, documentId, paymentId, kind, to.join(", "), cc.join(", "), subject, attachmentName],
+  ))[0];
+  if (kind === "proforma" && documentId) {
+    const d = await getDoc(q, documentId);
+    if (d.type === "proforma" && d.status === "draft") await setProformaStatus(documentId, "sent");
+  }
+  return row;
+}
+
 // ---------------------------------------------------------------- router
 
 export default async (req: Request, context: Context) => {
@@ -524,6 +597,9 @@ export default async (req: Request, context: Context) => {
         }
         break;
       }
+      case "email":
+        if (method === "POST") return json(await sendEmail(req, body), 201);
+        break;
       case "enquiries": {
         if (method === "PUT" && id) {
           const status = ["new", "replied", "archived"].includes(body.status) ? body.status : "new";

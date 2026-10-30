@@ -3,7 +3,7 @@ import {
   VAT_TREATMENTS, toFils, formatMoney, formatDate, computeTotals, documentBalance, bpToPercent, percentToBp, addDays, todayUAE,
 } from './calc.js';
 import { buildDocView, buildReceiptView, renderHTML, docTitle } from './doc.js';
-import { downloadPdf } from './pdf.js';
+import { downloadPdf, makePdf } from './pdf.js';
 
 const app = document.getElementById('app');
 const dlg = document.getElementById('dlg');
@@ -36,6 +36,8 @@ const ICON = {
   warn: '<path d="M12 4 2.5 20h19z"/><path d="M12 10v4.5M12 17.2v.3"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6 8.5 7 8.5-7"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  sheet: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9h16M4 14.5h16M10 9v11.5"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 
@@ -169,7 +171,7 @@ function renderLogin(message = '') {
 
 // ------------------------------------------------------------------ shell
 const NAV = [
-  ['#/', 'Dashboard', 'home'], ['#/clients', 'Clients', 'users'], ['#/invoices', 'Invoices', 'file'],
+  ['#/', 'Dashboard', 'home'], ['#/receivables', 'Receivables', 'clock'], ['#/clients', 'Clients', 'users'], ['#/invoices', 'Invoices', 'file'],
   ['#/receipts', 'Receipts', 'receipt'], ['#/enquiries', 'Enquiries', 'inbox'], ['#/settings', 'Business settings', 'gear'],
 ];
 
@@ -217,6 +219,7 @@ async function route() {
   if (dlg.open) dlg.close();
   try {
     if (!parts.length) viewDashboard(main);
+    else if (parts[0] === 'receivables') viewReceivables(main);
     else if (parts[0] === 'clients' && parts[1]) viewClient(main, Number(parts[1]));
     else if (parts[0] === 'clients') viewClients(main);
     else if (parts[0] === 'invoices') viewRegister(main, params);
@@ -255,7 +258,7 @@ function viewDashboard(main) {
   const newEnq = data.enquiries.filter((e) => e.status === 'new').slice(0, 3);
   main.innerHTML = `
     <div class="page-head"><div><h1>${greet}</h1><p class="sub">${formatDate(today)}</p></div>
-      <div class="actions"><a class="btn btn-gold" href="#/documents/new?type=proforma">${icon('plus')}Create proforma</a><a class="btn" href="#/documents/new?type=invoice">Create invoice</a><button class="btn" id="dash-pay">Record payment</button></div></div>
+      <div class="actions"><a class="btn btn-gold" href="#/documents/new?type=proforma">${icon('plus')}Create proforma</a><a class="btn" href="#/documents/new?type=invoice">Create invoice</a><button class="btn" id="dash-pay">Record payment</button><a class="btn" href="#/receivables">${icon('clock')}Who owes what</a></div></div>
     <div class="grid">
       ${gaps.length ? `<div class="notice">${icon('warn')}<div><strong>Finish your business details.</strong> Documents will show clear placeholders until you add your ${gaps.join(', ')}. <a href="#/settings">Open Business settings</a></div></div>` : ''}
       <div class="kpis">
@@ -291,7 +294,7 @@ function viewRegister(main, params) {
   const state = { tab: params.get('type') || 'all', q: '', status: 'all', from: '', to: '', client: params.get('client') || '' };
   main.innerHTML = `
     <div class="page-head"><div><h1>Invoices</h1><p class="sub">Proformas, invoices and credit notes.</p></div>
-      <div class="actions"><a class="btn btn-gold" href="#/documents/new?type=proforma">${icon('plus')}Create proforma</a><a class="btn" href="#/documents/new?type=invoice">Create invoice</a></div></div>
+      <div class="actions"><button class="btn" id="reg-csv">${icon('sheet')}Export CSV</button><a class="btn btn-gold" href="#/documents/new?type=proforma">${icon('plus')}Create proforma</a><a class="btn" href="#/documents/new?type=invoice">Create invoice</a></div></div>
     <section class="card">
       <div class="tabs" role="tablist">${[['all', 'All'], ['proforma', 'Proformas'], ['invoice', 'Invoices'], ['credit_note', 'Credit notes']].map(([k, t]) => `<button role="tab" data-tab="${k}" aria-selected="${state.tab === k}">${t}</button>`).join('')}</div>
       <div class="filters">
@@ -324,6 +327,7 @@ function viewRegister(main, params) {
   $('#f-status').addEventListener('change', (e) => { state.status = e.target.value; draw(); });
   $('#f-from').addEventListener('change', (e) => { state.from = e.target.value; draw(); });
   $('#f-to').addEventListener('change', (e) => { state.to = e.target.value; draw(); });
+  $('#reg-csv').addEventListener('click', () => csvDocuments());
   draw();
 }
 
@@ -513,6 +517,8 @@ function viewDocument(main, id) {
   ].filter(Boolean);
   const hasOwnPayments = data.payments.some((p) => p.document_id === d.id);
   const acts = [`<button class="btn btn-gold" data-act="pdf">${icon('down')}Download PDF</button>`];
+  if (!(d.type === 'invoice' && d.status === 'draft')) acts.push(`<button class="btn" data-act="email">${icon('mail')}Email to client</button>`);
+  if (b.balance > 0 && d.due_date && d.due_date < todayUAE() && d.status !== 'converted' && d.type !== 'credit_note' && !(d.type === 'invoice' && d.status === 'draft')) acts.push(`<button class="btn" data-act="remind">${icon('clock')}Send reminder</button>`);
   if (d.type === 'proforma' && d.status !== 'converted') {
     if (!hasOwnPayments) acts.push(`<a class="btn" href="#/documents/${d.id}/edit">${icon('edit')}Edit</a>`);
     if (b.balance > 0) acts.push('<button class="btn" data-act="pay">Record payment</button>');
@@ -541,6 +547,7 @@ function viewDocument(main, id) {
         </dl></section>
         ${pays.length ? `<section class="card"><div class="card-head"><h2>Payments</h2></div><div class="mini-list">${pays.map((p) => `<a href="#/receipts/${p.id}"><span>${esc(p.receipt_number)}<br><span class="small muted">${formatDate(p.paid_on)}${p.document_id !== d.id ? ' &middot; on proforma' : ''}</span></span><strong class="money">${money(p.amount)}</strong></a>`).join('')}</div></section>` : ''}
         ${related.length ? `<section class="card"><div class="card-head"><h2>Related documents</h2></div><div class="mini-list">${related.map((x) => `<a href="#/documents/${x.id}"><span>${esc(docLabel(x))}</span>${chip(statusOf(x))}</a>`).join('')}</div></section>` : ''}
+        ${emailHistory(data.emails.filter((m) => m.document_id === d.id))}
         ${canDelete ? `<button class="btn btn-danger" data-act="delete">${icon('trash')}Delete ${d.type === 'invoice' ? 'draft' : 'proforma'}</button>` : ''}
       </aside>
     </div>`;
@@ -549,6 +556,8 @@ function viewDocument(main, id) {
     const btn = e.target.closest('[data-act]'); if (!btn) return;
     const act = btn.dataset.act;
     if (act === 'pdf') await busy(btn, () => pdfFor(d));
+    if (act === 'email') emailDialog({ kind: d.type, doc: d });
+    if (act === 'remind') emailDialog({ kind: 'reminder', doc: d });
     if (act === 'pay') paymentDialog(d.id);
     if (act === 'credit') creditDialog(d);
     if (act === 'issue' && await confirmBox({ title: 'Issue this invoice?', body: 'It will receive its permanent number and can no longer be edited. Corrections are made with a credit note.', confirm: 'Issue invoice' })) {
@@ -643,12 +652,13 @@ function creditDialog(inv) {
 
 function viewReceipts(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Receipts</h1><p class="sub">A receipt is created each time you record a payment.</p></div>
-    <div class="actions"><button class="btn btn-gold" id="rc-new">${icon('plus')}Record payment</button></div></div>
+    <div class="actions"><button class="btn" id="rc-csv">${icon('sheet')}Export CSV</button><button class="btn btn-gold" id="rc-new">${icon('plus')}Record payment</button></div></div>
     <section class="card">${data.payments.length ? `<div class="table-wrap"><table class="list"><thead><tr><th>Receipt</th><th>Client</th><th data-m="hide">For</th><th data-m="hide">Method</th><th class="r">Amount</th></tr></thead><tbody>
       ${data.payments.map((p) => { const d = docById(p.document_id); return `<tr data-href="#/receipts/${p.id}"><td><a class="rowlink" href="#/receipts/${p.id}">${esc(p.receipt_number)}</a><br><span class="small muted">${formatDate(p.paid_on)}</span></td><td>${esc(clientName(p.client_id))}</td><td data-m="hide">${d ? esc(docLabel(d)) : ''}</td><td data-m="hide">${esc(p.method)}</td><td class="r money">${money(p.amount)}</td></tr>`; }).join('')}
     </tbody></table></div>` : `<div class="empty">${icon('receipt')}<p>No payments recorded yet. Receipts appear here once you record a payment against an invoice or proforma.</p></div>`}</section>`;
   bindDocTable(main);
   $('#rc-new').addEventListener('click', () => paymentDialog());
+  $('#rc-csv').addEventListener('click', () => csvPayments());
 }
 
 function viewReceipt(main, id) {
@@ -658,12 +668,14 @@ function viewReceipt(main, id) {
   const v = buildReceiptView(p, ctx());
   main.innerHTML = `<a class="crumb" href="#/receipts">${icon('back')}Receipts</a>
     <div class="page-head"><div><h1>Receipt ${esc(p.receipt_number)}</h1><p class="sub">${esc(clientName(p.client_id))} &middot; ${money(p.amount)} &middot; ${formatDate(p.paid_on)}</p></div>
-      <div class="doc-actions"><button class="btn btn-gold" id="rc-pdf">${icon('down')}Download receipt</button>${d ? `<a class="btn" href="#/documents/${d.id}">View ${esc(docLabel(d))}</a>` : ''}</div></div>
+      <div class="doc-actions"><button class="btn btn-gold" id="rc-pdf">${icon('down')}Download receipt</button><button class="btn" id="rc-mail">${icon('mail')}Email to client</button>${d ? `<a class="btn" href="#/documents/${d.id}">View ${esc(docLabel(d))}</a>` : ''}</div></div>
     <div class="doc-layout"><div class="paper-wrap">${renderHTML(v)}</div>
       <aside class="grid"><section class="card card-pad"><h2 class="section-title">Payment</h2><dl class="facts">
         <div><dt>Amount</dt><dd>${money(p.amount)}</dd></div><div><dt>Method</dt><dd>${esc(p.method || '')}</dd></div>${p.reference ? `<div><dt>Reference</dt><dd>${esc(p.reference)}</dd></div>` : ''}
         <div><dt>Balance after</dt><dd>${money(Math.max(0, p.snapshot?.balance_after ?? 0))}</dd></div></dl></section>
+        ${emailHistory(data.emails.filter((m) => m.payment_id === p.id))}
         <button class="btn btn-danger" id="rc-del">${icon('trash')}Delete payment</button></aside></div>`;
+  $('#rc-mail').addEventListener('click', () => emailDialog({ kind: 'receipt', payment: p }));
   $('#rc-pdf').addEventListener('click', (e) => busy(e.currentTarget, () => downloadPdf(v, `Receipt ${p.receipt_number} ${clientName(p.client_id)}`)));
   $('#rc-del').addEventListener('click', async (e) => {
     const btn = e.currentTarget;
@@ -702,19 +714,20 @@ function clientDialog(client, onSaved, prefill = {}) {
 
 function viewClients(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Clients</h1><p class="sub">${data.clients.filter((c) => !c.archived).length} active clients</p></div>
-    <div class="actions"><button class="btn btn-gold" id="cl-new">${icon('plus')}Add client</button></div></div>
+    <div class="actions"><button class="btn" id="cl-csv">${icon('sheet')}Export CSV</button><button class="btn btn-gold" id="cl-new">${icon('plus')}Add client</button></div></div>
     <section class="card"><div class="filters" style="grid-template-columns:1fr auto"><input id="cl-q" type="text" placeholder="Search clients" aria-label="Search clients"><label class="check" style="min-height:44px;align-items:center"><input type="checkbox" id="cl-arch"> Show archived</label></div><div id="cl-body"></div></section>`;
   const draw = () => {
     const q = $('#cl-q').value.toLowerCase(), arch = $('#cl-arch').checked;
     const rows = data.clients.filter((c) => (arch || !c.archived) && (!q || [c.name, c.contact_name, c.email].join(' ').toLowerCase().includes(q)));
-    $('#cl-body').innerHTML = rows.length ? `<div class="table-wrap"><table class="list"><thead><tr><th>Client</th><th data-m="hide">Email</th><th data-m="hide">Documents</th><th class="r">Balance due</th></tr></thead><tbody>
+    $('#cl-body').innerHTML = rows.length ? `<div class="table-wrap"><table class="list"><thead><tr><th>Client</th><th data-m="hide">Email</th><th data-m="hide">Phone</th><th data-m="hide">Documents</th><th class="r">Balance due</th></tr></thead><tbody>
       ${rows.map((c) => { const docs = data.documents.filter((d) => d.client_id === c.id); const due = docs.filter((d) => d.type === 'invoice' && d.status === 'issued').reduce((s, d) => s + Math.max(0, bal(d).balance), 0);
-        return `<tr data-href="#/clients/${c.id}"><td><a class="rowlink" href="#/clients/${c.id}">${esc(c.name)}</a>${c.archived ? ' <span class="chip">Archived</span>' : ''}<br><span class="small muted">${esc(c.contact_name || '')}</span></td><td data-m="hide">${esc(c.email)}</td><td data-m="hide">${docs.length}</td><td class="r money">${money(due)}</td></tr>`; }).join('')}
+        return `<tr data-href="#/clients/${c.id}"><td><a class="rowlink" href="#/clients/${c.id}">${esc(c.name)}</a>${c.archived ? ' <span class="chip">Archived</span>' : ''}<br><span class="small muted">${esc(c.contact_name || '')}</span></td><td data-m="hide">${c.email ? `<a href="mailto:${esc(c.email)}">${esc(c.email)}</a>` : ''}</td><td data-m="hide">${c.phone ? `<a href="tel:${esc(c.phone)}">${esc(c.phone)}</a>` : ''}</td><td data-m="hide">${docs.length}</td><td class="r money">${money(due)}</td></tr>`; }).join('')}
     </tbody></table></div>` : `<div class="empty">${icon('users')}<p>${data.clients.length ? 'No clients match your search.' : 'No clients yet.'}</p></div>`;
     bindDocTable($('#cl-body'));
   };
   $('#cl-q').addEventListener('input', draw); $('#cl-arch').addEventListener('change', draw);
   $('#cl-new').addEventListener('click', () => clientDialog(null, (c) => go(`#/clients/${c.id}`)));
+  $('#cl-csv').addEventListener('click', () => csvClients());
   draw();
 }
 
@@ -767,6 +780,178 @@ function viewEnquiries(main) {
   });
 }
 
+// ------------------------------------------------------------------ receivables
+// Who owes what and when: every unpaid issued invoice and open proforma, soonest first.
+function receivableRows() {
+  const today = todayUAE();
+  return data.documents
+    .filter((d) => ((d.type === 'invoice' && d.status === 'issued') || (d.type === 'proforma' && !['converted', 'draft'].includes(d.status))) && bal(d).balance > 0)
+    .map((d) => {
+      const c = data.clients.find((x) => x.id === d.client_id) || {};
+      const days = d.due_date ? Math.round((Date.parse(d.due_date) - Date.parse(today)) / 86400000) : null;
+      const last = data.emails.find((m) => m.document_id === d.id);
+      const group = days === null ? 'later' : days < 0 ? 'overdue' : days <= 7 ? 'week' : days <= 30 ? 'month' : 'later';
+      return { d, c, days, last, group, balance: bal(d).balance };
+    })
+    .sort((a, b) => (a.d.due_date || '9999').localeCompare(b.d.due_date || '9999'));
+}
+
+function viewReceivables(main) {
+  const rows = receivableRows();
+  const sum = (g) => rows.filter((r) => !g || r.group === g).reduce((t, r) => t + r.balance, 0);
+  const count = (g) => rows.filter((r) => r.group === g).length;
+  const GROUPS = [['overdue', 'Overdue'], ['week', 'Due in the next 7 days'], ['month', 'Due within 30 days'], ['later', 'Later']];
+  const when = (r) => r.days === null ? 'No due date' : r.days < 0 ? `${-r.days} day${r.days === -1 ? '' : 's'} overdue` : r.days === 0 ? 'Due today' : `In ${r.days} day${r.days === 1 ? '' : 's'}`;
+  main.innerHTML = `<div class="page-head"><div><h1>Receivables</h1><p class="sub">Who owes what, and when. Issued invoices and sent proformas with a balance.</p></div>
+    <div class="actions"><button class="btn" id="rv-csv">${icon('sheet')}Export CSV</button></div></div>
+    <div class="grid">
+      <div class="kpis">
+        <div class="card kpi ${sum('overdue') ? 'alert' : ''}"><span>Overdue</span><strong>${money(sum('overdue'))}</strong><small>${plural(count('overdue'), 'document')}</small></div>
+        <div class="card kpi"><span>Next 7 days</span><strong>${money(sum('week'))}</strong><small>${plural(count('week'), 'document')}</small></div>
+        <div class="card kpi"><span>Within 30 days</span><strong>${money(sum('month'))}</strong><small>${plural(count('month'), 'document')}</small></div>
+        <div class="card kpi"><span>Total outstanding</span><strong>${money(sum())}</strong><small>${plural(rows.length, 'document')}</small></div>
+      </div>
+      ${rows.length ? GROUPS.filter(([g]) => count(g)).map(([g, t]) => `<section class="card"><div class="card-head"><h2>${t}</h2><span class="money" style="font-weight:600">${money(sum(g))}</span></div>
+        <div class="table-wrap"><table class="list"><thead><tr><th>Client</th><th data-m="hide">Email</th><th>Document</th><th data-m="hide">Due</th><th class="r">Balance</th><th data-m="hide">Last emailed</th><th class="r">Action</th></tr></thead><tbody>
+        ${rows.filter((r) => r.group === g).map((r) => `<tr data-href="#/documents/${r.d.id}"><td><strong>${esc(r.c.name || '')}</strong><br><span class="small muted">${esc(r.c.contact_name || '')}</span></td>
+          <td data-m="hide">${r.c.email ? `<a href="mailto:${esc(r.c.email)}">${esc(r.c.email)}</a>` : '<span class="muted small">No email</span>'}</td>
+          <td><a class="rowlink" href="#/documents/${r.d.id}">${esc(docLabel(r.d))}</a><br><span class="small ${r.group === 'overdue' ? '' : 'muted'}" style="${r.group === 'overdue' ? 'color:var(--danger);font-weight:600' : ''}">${when(r)}</span></td>
+          <td data-m="hide" class="num">${formatDate(r.d.due_date)}</td><td class="r money">${money(r.balance)}</td>
+          <td data-m="hide" class="small muted">${r.last ? formatDate(r.last.sent_at) : 'Never'}</td>
+          <td class="r"><div style="display:inline-flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+            <button class="btn btn-sm" data-rv="${r.group === 'overdue' ? 'remind' : 'email'}" data-id="${r.d.id}">${icon('mail')}${r.group === 'overdue' ? 'Remind' : 'Email'}</button>
+            <button class="btn btn-sm" data-rv="pay" data-id="${r.d.id}">Paid</button></div></td></tr>`).join('')}
+        </tbody></table></div></section>`).join('') : `<section class="card"><div class="empty">${icon('clock')}<p>Nothing outstanding. Issued invoices and sent proformas with a balance appear here.</p></div></section>`}
+    </div>`;
+  bindDocTable(main);
+  main.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-rv]'); if (!b) return;
+    e.stopPropagation();
+    const d = docById(Number(b.dataset.id));
+    if (b.dataset.rv === 'pay') paymentDialog(d.id);
+    else emailDialog({ kind: b.dataset.rv === 'remind' ? 'reminder' : d.type, doc: d });
+  }, true);
+  $('#rv-csv').addEventListener('click', () => downloadCsv(`receivables-${todayUAE()}.csv`,
+    ['Client', 'Contact', 'Email', 'Phone', 'Document', 'Number', 'Issue date', 'Due date', 'Days to due', 'Total', 'Balance', 'Currency', 'Last emailed'],
+    rows.map((r) => [r.c.name, r.c.contact_name, r.c.email, r.c.phone, TYPE_NAME[r.d.type], r.d.number, r.d.issue_date, r.d.due_date, r.days, (r.d.total / 100).toFixed(2), (r.balance / 100).toFixed(2), r.d.currency, r.last ? r.last.sent_at.slice(0, 10) : ''])));
+}
+
+// ------------------------------------------------------------------ CSV
+// Opens directly in Excel and Numbers (UTF-8 with BOM, quoted fields).
+function downloadCsv(filename, header, rows) {
+  const cell = (v) => {
+    const t = v === null || v === undefined ? '' : String(v);
+    return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const csv = '﻿' + [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+}
+
+function csvClients() {
+  downloadCsv(`clients-${todayUAE()}.csv`,
+    ['Client', 'Contact', 'Email', 'Phone', 'Address', 'TRN', 'Documents', 'Invoiced', 'Received', 'Balance due', 'Archived', 'Notes'],
+    data.clients.map((c) => {
+      const docs = data.documents.filter((d) => d.client_id === c.id);
+      const invoiced = docs.filter((d) => d.type === 'invoice' && d.status === 'issued').reduce((t, d) => t + d.total, 0);
+      const received = data.payments.filter((p) => p.client_id === c.id).reduce((t, p) => t + p.amount, 0);
+      const due = docs.filter((d) => d.type === 'invoice' && d.status === 'issued').reduce((t, d) => t + Math.max(0, bal(d).balance), 0);
+      return [c.name, c.contact_name, c.email, c.phone, c.address, c.trn, docs.length, (invoiced / 100).toFixed(2), (received / 100).toFixed(2), (due / 100).toFixed(2), c.archived ? 'Yes' : '', c.notes];
+    }));
+}
+
+function csvDocuments() {
+  downloadCsv(`documents-${todayUAE()}.csv`,
+    ['Type', 'Number', 'Status', 'Client', 'Client email', 'Issue date', 'Due date', 'Subtotal', 'VAT', 'Total', 'Paid', 'Balance', 'Currency', 'Lines'],
+    data.documents.map((d) => {
+      const c = data.clients.find((x) => x.id === d.client_id) || {};
+      const b = bal(d);
+      return [TYPE_NAME[d.type], d.number || 'Draft', statusOf(d).label, c.name, c.email, d.issue_date, d.due_date, (d.subtotal / 100).toFixed(2), (d.vat_total / 100).toFixed(2), (d.total / 100).toFixed(2),
+        (b.paid / 100).toFixed(2), d.type === 'credit_note' ? '' : (Math.max(0, b.balance) / 100).toFixed(2), d.currency, d.lines.map((l) => l.description).join(' | ')];
+    }));
+}
+
+function csvPayments() {
+  downloadCsv(`payments-${todayUAE()}.csv`,
+    ['Receipt', 'Date', 'Client', 'For', 'Amount', 'Method', 'Reference', 'Notes'],
+    data.payments.map((p) => { const d = docById(p.document_id); return [p.receipt_number, p.paid_on, clientName(p.client_id), d ? docLabel(d) : '', (p.amount / 100).toFixed(2), p.method, p.reference, p.notes]; }));
+}
+
+// ------------------------------------------------------------------ email
+function emailHistory(list) {
+  if (!list.length) return '';
+  return `<section class="card"><div class="card-head"><h2>Emails sent</h2></div><div class="mini-list">${list.map((m) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:10px 24px;border-top:1px solid var(--line-2);font-size:.9rem"><span>${esc(m.subject)}<br><span class="small muted">To ${esc(m.to_email)}${m.attachment ? ` &middot; ${esc(m.attachment)}` : ''}</span></span><span class="small muted" style="white-space:nowrap">${formatDate(m.sent_at)}</span></div>`).join('')}</div></section>`;
+}
+
+function fillTemplate(t, vals) {
+  return String(t || '').replace(/\{(\w+)\}/g, (m, k) => (vals[k] !== undefined && vals[k] !== null && vals[k] !== '' ? vals[k] : m));
+}
+
+const bytesToBase64 = (bytes) => {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+};
+
+function emailDialog({ kind, doc, payment }) {
+  const s = data.settings;
+  const record = payment || doc;
+  const clientId = payment ? payment.client_id : doc.client_id;
+  const c = data.clients.find((x) => x.id === clientId) || {};
+  const cur = (doc?.currency) || s.currency || 'AED';
+  const target = payment ? docById(payment.document_id) : doc;
+  const b = target ? bal(target) : { balance: 0 };
+  const vals = {
+    name: c.contact_name ? c.contact_name.trim().split(/\s+/)[0] : (c.name || ''), company: s.legal_name || 'Zenith Advisory Services', currency: cur,
+    number: payment ? payment.receipt_number : doc.number || '', total: formatMoney(target ? target.total : 0),
+    balance: formatMoney(Math.max(0, payment ? payment.snapshot?.balance_after ?? b.balance : b.balance)), amount: payment ? formatMoney(payment.amount) : '',
+    due_date: formatDate(target?.due_date), date: formatDate(payment ? payment.paid_on : doc.issue_date),
+  };
+  const tkey = kind === 'credit_note' ? 'invoice' : kind;
+  const subject = fillTemplate(s[`email_${tkey}_subject`], vals);
+  const text = fillTemplate(s[`email_${tkey}_body`], vals) + (s.email_signature ? `\n\n${s.email_signature}` : '');
+  const view = payment ? buildReceiptView(payment, ctx()) : buildDocView(doc, ctx());
+  const filename = `${view.title} ${view.number} ${c.name || ''}`.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() + '.pdf';
+  const configured = data.mail.configured;
+  openDialog(`<form id="em" novalidate>
+    <div class="dlg-head"><h2 id="dlg-title">${kind === 'reminder' ? 'Send reminder' : 'Email to client'}</h2><button type="button" class="btn btn-quiet btn-icon" data-close aria-label="Close">${icon('x')}</button></div>
+    <div class="dlg-body form">
+      ${configured ? `<p class="small muted">From <strong>${esc(data.mail.from)}</strong></p>` : `<div class="notice small">${icon('warn')}<div>Email sending is not connected yet, so this opens your own mail app. Download the PDF first and attach it there.</div></div>`}
+      <div class="field"><label for="em-to">To</label><input id="em-to" type="email" value="${esc(c.email || '')}" placeholder="client@example.com"><span class="err" id="em-err" role="alert"></span></div>
+      <div class="field"><label for="em-cc">Cc <span class="muted">(optional)</span></label><input id="em-cc" type="text" placeholder="Separate several addresses with commas"></div>
+      <div class="field"><label for="em-sub">Subject</label><input id="em-sub" value="${esc(subject)}"></div>
+      <div class="field"><label for="em-text">Message</label><textarea id="em-text" rows="11">${esc(text)}</textarea></div>
+      <p class="small" style="display:flex;align-items:center;gap:8px">${icon('file')}<span>Attached: <strong>${esc(filename)}</strong></span></p>
+      ${configured ? '<label class="check"><input type="checkbox" id="em-copy" checked><span>Send me a copy</span></label>' : ''}
+    </div>
+    <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button>
+      ${configured ? `<button class="btn btn-gold" type="submit">${icon('mail')}Send email</button>` : `<button type="button" class="btn" id="em-pdf">${icon('down')}Download PDF</button><button class="btn btn-gold" type="submit">${icon('mail')}Open in my mail app</button>`}</div></form>`, () => {
+    $('#em-pdf')?.addEventListener('click', (e) => busy(e.currentTarget, () => downloadPdf(view, filename.replace(/\.pdf$/, ''))));
+    $('#em').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const to = $('#em-to').value.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) { $('#em-err').textContent = 'Please enter the client’s email address.'; $('#em-to').setAttribute('aria-invalid', 'true'); $('#em-to').focus(); return; }
+      if (!configured) {
+        location.href = `mailto:${encodeURIComponent(to)}?${$('#em-cc').value.trim() ? `cc=${encodeURIComponent($('#em-cc').value.trim())}&` : ''}subject=${encodeURIComponent($('#em-sub').value)}&body=${encodeURIComponent($('#em-text').value)}`;
+        dlg.close();
+        return;
+      }
+      await busy(e.submitter, async () => {
+        const bytes = await makePdf(view);
+        await api('POST', 'email', {
+          kind, document_id: payment ? null : doc.id, payment_id: payment ? payment.id : null, client_id: clientId,
+          to, cc: $('#em-cc').value, subject: $('#em-sub').value, text: $('#em-text').value, copy_me: $('#em-copy')?.checked,
+          attachment: { filename, data: bytesToBase64(bytes) },
+        });
+        if (!c.email && to) await api('PUT', `clients/${c.id}`, { ...c, email: to }).catch(() => {});
+        await reload(); dlg.close(); toast(`Email sent to ${to}.`); route();
+      });
+    });
+  });
+}
+
 // ------------------------------------------------------------------ settings
 function viewSettings(main) {
   const s = data.settings, c = data.counters;
@@ -805,6 +990,17 @@ function viewSettings(main) {
         ${[['proforma', 'Proforma'], ['invoice', 'Invoice'], ['credit_note', 'Credit note'], ['receipt', 'Receipt']].map(([k, t]) => `<tr style="cursor:default"><td>${t}</td><td><input aria-label="${t} prefix" id="s-prefix_${k}" value="${esc(s[`prefix_${k}`] ?? '')}" style="max-width:120px"></td><td><input aria-label="${t} next number" id="s-n-${k}" inputmode="numeric" value="${c[k]}" style="max-width:120px"></td></tr>`).join('')}
       </tbody></table></div>
     </section>
+    <section class="card card-pad form"><h2 class="section-title">Email</h2>
+      ${data.mail.configured
+        ? `<div class="notice info">${icon('mail')}<div class="small">Emails are sent from <strong>${esc(data.mail.from)}</strong> through your Google Workspace account. Sent emails also appear in its Sent folder when you tick “Send me a copy”.</div></div>`
+        : `<div class="notice">${icon('warn')}<div class="small"><strong>Email sending is not connected yet.</strong> Until it is, “Email to client” opens your own mail app with the text filled in, and you attach the downloaded PDF. Setup steps are in the README.</div></div>`}
+      <div class="row2">${f('email_from_name', 'Sender name', s.email_from_name)}<div class="field"><label for="s-email_signature">Signature</label><textarea id="s-email_signature" rows="4">${esc(s.email_signature)}</textarea></div></div>
+      <p class="small muted">Standard wording. You can change any email before it is sent. These words are replaced automatically: {name} {number} {total} {balance} {amount} {currency} {due_date} {date} {company}</p>
+      ${[['proforma', 'Proforma'], ['invoice', 'Invoice'], ['receipt', 'Receipt'], ['reminder', 'Payment reminder']].map(([k, t]) => `
+      <details class="field"><summary style="cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600">${t} email</summary>
+        <div class="form" style="margin-top:8px">${f(`email_${k}_subject`, 'Subject', s[`email_${k}_subject`])}
+        <div class="field"><label for="s-email_${k}_body">Message</label><textarea id="s-email_${k}_body" rows="8">${esc(s[`email_${k}_body`])}</textarea></div></div></details>`).join('')}
+    </section>
     <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center">
       <a class="btn" href="/api/export" download>${icon('down')}Download a full backup (JSON)</a>
       <button class="btn btn-gold btn-lg" type="submit">Save settings</button></div>
@@ -828,6 +1024,8 @@ function viewSettings(main) {
       currency: v('currency'), invoice_due_days: v('invoice_due_days'), proforma_valid_days: v('proforma_valid_days'), payment_terms: v('payment_terms'),
       prefix_proforma: v('prefix_proforma'), prefix_invoice: v('prefix_invoice'), prefix_credit_note: v('prefix_credit_note'), prefix_receipt: v('prefix_receipt'),
       logo_data_url: logo,
+      email_from_name: v('email_from_name'), email_signature: v('email_signature'),
+      ...Object.fromEntries(['proforma', 'invoice', 'receipt', 'reminder'].flatMap((k) => [[`email_${k}_subject`, v(`email_${k}_subject`)], [`email_${k}_body`, v(`email_${k}_body`)]])),
       counters: Object.fromEntries(['proforma', 'invoice', 'credit_note', 'receipt'].map((k) => [k, Number(v(`n-${k}`))])),
     };
     const lowered = Object.entries(body.counters).filter(([k, n]) => n < data.counters[k]);

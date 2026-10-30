@@ -298,3 +298,6 @@ dialog[open]{animation:pop .22s var(--ease)}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media print{.side,.topbar,.page-head,.doc-layout>aside,.crumb{display:none!important}.main{padding:0}.paper{box-shadow:none;border:0;min-width:0}}
+.btn-sm{min-height:38px;padding:0 var(--s3);font-size:.85rem}
+.btn-sm svg{width:15px;height:15px}
+.dlg-body p svg{width:18px;height:18px;flex:none;color:var(--gold-deep)}
