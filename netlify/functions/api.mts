@@ -235,7 +235,9 @@ async function bootstrap() {
     q(`SELECT id, service, name, email, company, phone, message, page, status, created_at FROM enquiries ORDER BY created_at DESC`),
   ]);
   const emails = await q(`SELECT id, client_id, document_id, payment_id, kind, to_email, cc, subject, attachment, sent_at FROM email_log ORDER BY sent_at DESC`);
-  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries, emails,
+  const expenses = await q(`SELECT ${EXP_COLS} FROM expenses ORDER BY spent_on DESC, id DESC`);
+  const vat_returns = await q(`SELECT period_start::text, period_end::text, boxes, filed_on::text, reference, paid_on::text, notes FROM vat_returns ORDER BY period_start DESC`);
+  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries, emails, expenses, vat_returns,
     mail: { configured: mailConfigured(), from: mailFrom(settings) } };
 }
 
@@ -248,7 +250,52 @@ const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
   email_sign_phone: "text", email_disclaimer: "text",
   email_proforma_subject: "text", email_proforma_body: "text", email_invoice_subject: "text", email_invoice_body: "text",
   email_receipt_subject: "text", email_receipt_body: "text", email_reminder_subject: "text", email_reminder_body: "text",
+  vat_first_start: "text", vat_first_end: "text", vat_period_months: "int", emirate: "text", vat_reminders: "bool",
 };
+
+const EXP_COLS = `id, spent_on::text, supplier, supplier_trn, reference, description, category, kind, net::float8 AS net, vat::float8 AS vat,
+  recoverable, has_tax_invoice, notes`;
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+
+function readExpense(body: any) {
+  const kind = ["uae_vat", "no_vat", "abroad"].includes(body.kind) ? body.kind : "uae_vat";
+  const e = {
+    spent_on: String(body.spent_on || ""), supplier: str(body.supplier, 200), supplier_trn: str(body.supplier_trn, 40).replace(/\s+/g, ""),
+    reference: str(body.reference, 120), description: str(body.description, 500), category: str(body.category, 40) || "other", kind,
+    net: Math.round(Number(body.net) || 0), vat: kind === "uae_vat" ? Math.round(Number(body.vat) || 0) : 0,
+    recoverable: body.recoverable !== false, has_tax_invoice: kind === "uae_vat" ? body.has_tax_invoice !== false : false, notes: str(body.notes, 2000),
+  };
+  if (!ISO.test(e.spent_on)) throw new HttpError(400, "Please enter the date of the expense.");
+  if (!e.supplier) throw new HttpError(400, "Please enter who you paid.");
+  if (e.net <= 0) throw new HttpError(400, "Please enter the amount.");
+  if (e.vat < 0 || e.vat > e.net) throw new HttpError(400, "Please check the VAT amount.");
+  if (e.supplier_trn && !/^\d{15}$/.test(e.supplier_trn)) throw new HttpError(400, "A UAE TRN has 15 digits. Please check it, or leave it blank.");
+  return e;
+}
+
+async function saveExpense(id: number | null, body: any) {
+  const e = readExpense(body);
+  const v = [e.spent_on, e.supplier, e.supplier_trn, e.reference, e.description, e.category, e.kind, e.net, e.vat, e.recoverable, e.has_tax_invoice, e.notes];
+  const rows = id
+    ? await q(`UPDATE expenses SET spent_on=$2, supplier=$3, supplier_trn=$4, reference=$5, description=$6, category=$7, kind=$8, net=$9, vat=$10,
+        recoverable=$11, has_tax_invoice=$12, notes=$13, updated_at=now() WHERE id=$1 RETURNING ${EXP_COLS}`, [id, ...v])
+    : await q(`INSERT INTO expenses (spent_on, supplier, supplier_trn, reference, description, category, kind, net, vat, recoverable, has_tax_invoice, notes)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING ${EXP_COLS}`, v);
+  if (!rows[0]) throw new HttpError(404, "Expense not found.");
+  return rows[0];
+}
+
+async function saveVatReturn(start: string, body: any) {
+  if (!ISO.test(start) || !ISO.test(String(body.period_end || ""))) throw new HttpError(400, "Unknown VAT period.");
+  for (const k of ["filed_on", "paid_on"]) if (body[k] && !ISO.test(String(body[k]))) throw new HttpError(400, "Please check the dates.");
+  if (body.paid_on && !body.filed_on) throw new HttpError(400, "Mark the return as filed before recording the payment.");
+  const rows = await q(
+    `INSERT INTO vat_returns (period_start, period_end, boxes, filed_on, reference, paid_on, notes) VALUES ($1,$2,$3::jsonb,$4,$5,$6,$7)
+     ON CONFLICT (period_start) DO UPDATE SET period_end=$2, boxes=$3::jsonb, filed_on=$4, reference=$5, paid_on=$6, notes=$7, updated_at=now()
+     RETURNING period_start::text, period_end::text, boxes, filed_on::text, reference, paid_on::text, notes`,
+    [start, body.period_end, body.filed_on ? JSON.stringify(body.boxes ?? null) : null, body.filed_on || null, str(body.reference, 120), body.paid_on || null, str(body.notes, 2000)]);
+  return rows[0];
+}
 
 async function saveSettings(body: any) {
   const current = await getSettings();
@@ -266,6 +313,12 @@ async function saveSettings(body: any) {
   next.currency = (next.currency || "AED").toUpperCase().slice(0, 3);
   next.trn = String(next.trn || "").replace(/\s+/g, "");
   if (next.trn && !/^\d{15}$/.test(next.trn)) throw new HttpError(400, "A UAE TRN has 15 digits. Please check it, or leave it blank.");
+  for (const k of ["vat_first_start", "vat_first_end"]) {
+    next[k] = String(next[k] || "");
+    if (next[k] && !/^\d{4}-\d{2}-\d{2}$/.test(next[k])) throw new HttpError(400, "Please check the VAT period dates.");
+  }
+  if (next.vat_first_start && next.vat_first_end && next.vat_first_end < next.vat_first_start) throw new HttpError(400, "The first VAT period must end after it starts.");
+  next.vat_period_months = Number(next.vat_period_months) === 1 ? 1 : 3;
   if (next.vat_registered && next.trn && next.currency !== "AED") throw new HttpError(400, "Tax invoices must show amounts in AED, so the currency must be AED while you are VAT registered.");
   if ("logo_data_url" in body) {
     const logo = String(body.logo_data_url || "");
@@ -646,6 +699,15 @@ export default async (req: Request, context: Context) => {
       }
       case "email":
         if (method === "POST") return json(await sendEmail(req, body), 201);
+        break;
+      case "expenses": {
+        if (method === "POST" && !idPart) return json(await saveExpense(null, body), 201);
+        if (method === "PUT" && id) return json(await saveExpense(id, body));
+        if (method === "DELETE" && id) { await q(`DELETE FROM expenses WHERE id = $1`, [id]); return json({ ok: true }); }
+        break;
+      }
+      case "vat-returns":
+        if (method === "PUT" && idPart) return json(await saveVatReturn(idPart, body));
         break;
       case "enquiries": {
         if (method === "PUT" && id) {

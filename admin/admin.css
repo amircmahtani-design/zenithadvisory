@@ -306,3 +306,22 @@ dialog[open]{animation:pop .22s var(--ease)}
 .notice + .notice{margin-top:var(--s3)}
 .paper .p-table td:nth-child(2){min-width:170px}
 .paper .p-table th.r{white-space:normal;max-width:72px}
+/* VAT return */
+.steps{margin:var(--s3) 0 var(--s4);padding-left:var(--s5);display:grid;gap:var(--s3)}
+.vat201 td.bx{font-weight:500;color:var(--navy-800);width:52px}
+.vat201 tr.grp td{background:#F7F2E8;font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding-top:10px;padding-bottom:10px}
+.vat201 tr.zero td{color:var(--ink-3)}
+.vat201 tr.tot td{font-weight:600}
+.vat201 .copy{font:inherit;color:inherit;background:none;border:1px dashed transparent;border-radius:6px;padding:4px 8px;cursor:pointer;font-variant-numeric:tabular-nums}
+.vat201 .copy:hover,.vat201 .copy:focus-visible{border-color:var(--gold);background:var(--gold-tint)}
+table.list td.nw{white-space:nowrap}
+.m-only{display:none}
+@media (max-width:720px){
+  .m-only{display:inline}
+  table.list.stack td:nth-child(2){grid-row:span 2}
+  table.vat201 tr{grid-template-columns:34px 1fr 1fr;align-items:baseline}
+  table.vat201 td:nth-child(2){grid-column:2 / 4}
+  table.vat201 td:nth-child(3){grid-column:2}
+  table.vat201 tr.grp{display:block;padding:var(--s2) var(--s4)}
+  table.vat201 td.r:empty{display:block}
+}

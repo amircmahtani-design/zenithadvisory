@@ -51,6 +51,9 @@ Then open `https://zenithadvisory.ae/admin` (or `https://zenithadvisory.ae/offic
 - **VAT**: 5% by default and configurable. Each line can be standard rated, zero rated, exempt or outside the scope of VAT. Prices can be entered before VAT or including VAT. Amounts are stored in fils, so there are no rounding drifts.
 - **Receivables**: who owes what and when, grouped into overdue, next 7 days, within 30 days and later, with Email / Remind / Paid on every row.
 - **Email**: every proforma, invoice and receipt has *Email to client*; overdue documents also have *Send reminder*. The standard wording for each is editable in Business settings, and every email sent is logged on the document.
+- **Expenses**: business costs with supplier, TRN and VAT. Input VAT is claimed only with a supplier tax invoice and business use; client entertainment is excluded. Services bought from outside the UAE are reverse charged (declared and reclaimed on the same return).
+- **VAT returns**: set the first tax period from the FTA certificate once; every period's VAT201 boxes (1a–1g by emirate, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14) are worked out from issued invoices, credit notes, advance payments (VAT is due when a payment arrives before the invoice) and expenses. Mark a return filed and paid; the filed figures are kept, and later changes are flagged with whether to correct in the next return or by voluntary disclosure. Due dates appear on the dashboard.
+- **VAT reminders**: `netlify/functions/vat-reminder.mts` runs daily and emails 14, 7 and 2 days before each deadline, on the day and every 3 days while late, to `VAT_REMINDER_TO` or the SMTP mailbox. It needs the email settings above.
 - **CSV export**: Clients, Invoices, Receipts and Receivables each have *Export CSV*, which opens in Excel or Numbers.
 - **Backup**: *Business settings → Download a full backup (JSON)*.
 

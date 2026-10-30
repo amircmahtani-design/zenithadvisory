@@ -4,6 +4,7 @@ import {
 } from './calc.js';
 import { buildDocView, buildReceiptView, renderHTML, docTitle } from './doc.js';
 import { downloadPdf, makePdf } from './pdf.js';
+import { EMIRATES, EXPENSE_KINDS, EXPENSE_CATEGORIES, NOT_RECOVERABLE, periods, vatReturn, periodStatus, vatConfigured } from './vat.js';
 
 const app = document.getElementById('app');
 const dlg = document.getElementById('dlg');
@@ -37,6 +38,8 @@ const ICON = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="1.5"/><path d="m3.5 6 8.5 7 8.5-7"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+  wallet: '<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6H18v3"/><rect x="4" y="9" width="16" height="11" rx="1.5"/><path d="M16 14.5h1.5"/>',
+  percent: '<path d="M19 5 5 19"/><circle cx="7" cy="7" r="2.2"/><circle cx="17" cy="17" r="2.2"/>',
   sheet: '<rect x="4" y="3.5" width="16" height="17" rx="1.5"/><path d="M4 9h16M4 14.5h16M10 9v11.5"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
@@ -188,7 +191,7 @@ function renderLogin(message = '') {
 // ------------------------------------------------------------------ shell
 const NAV = [
   ['#/', 'Dashboard', 'home'], ['#/receivables', 'Receivables', 'clock'], ['#/clients', 'Clients', 'users'], ['#/invoices', 'Invoices', 'file'],
-  ['#/receipts', 'Receipts', 'receipt'], ['#/enquiries', 'Enquiries', 'inbox'], ['#/settings', 'Business settings', 'gear'],
+  ['#/receipts', 'Receipts', 'receipt'], ['#/expenses', 'Expenses', 'wallet'], ['#/vat', 'VAT returns', 'percent'], ['#/enquiries', 'Enquiries', 'inbox'], ['#/settings', 'Business settings', 'gear'],
 ];
 
 function renderShell() {
@@ -244,6 +247,9 @@ async function route() {
     else if (parts[0] === 'documents') viewDocument(main, Number(parts[1]));
     else if (parts[0] === 'receipts' && parts[1]) viewReceipt(main, Number(parts[1]));
     else if (parts[0] === 'receipts') viewReceipts(main);
+    else if (parts[0] === 'expenses') viewExpenses(main, params);
+    else if (parts[0] === 'vat' && parts[1]) viewVatPeriod(main, parts[1]);
+    else if (parts[0] === 'vat') viewVat(main);
     else if (parts[0] === 'enquiries') viewEnquiries(main);
     else if (parts[0] === 'settings') viewSettings(main);
     else main.innerHTML = '<div class="empty">Page not found. <a href="#/">Go to the dashboard</a></div>';
@@ -268,6 +274,7 @@ function viewDashboard(main) {
   const received = data.payments.filter((p) => p.paid_on.startsWith(month)).reduce((s, p) => s + p.amount, 0);
   const openPf = data.documents.filter((d) => d.type === 'proforma' && !['converted', 'expired'].includes(d.status) && bal(d).state !== 'paid');
   const gaps = setupGaps();
+  const vt = vatNextTask();
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   const recent = data.documents.slice(0, 6);
@@ -277,6 +284,7 @@ function viewDashboard(main) {
       <div class="actions"><a class="btn btn-gold" href="#/documents/new?type=proforma">${icon('plus')}Create proforma</a><a class="btn" href="#/documents/new?type=invoice">Create invoice</a><button class="btn" id="dash-pay">Record payment</button><a class="btn" href="#/receivables">${icon('clock')}Who owes what</a></div></div>
     <div class="grid">
       ${gaps.length ? `<div class="notice">${icon('warn')}<div><strong>Finish your business details.</strong> Documents will show clear placeholders until you add your ${gaps.join(', ')}. <a href="#/settings">Open Business settings</a></div></div>` : ''}
+      ${vt ? `<div class="notice ${vt.tone === 'info' ? 'info' : ''}">${icon(vt.tone === 'info' ? 'percent' : 'warn')}<div>${vt.html}</div></div>` : ''}
       <div class="kpis">
         <div class="card kpi"><span>Awaiting payment</span><strong>${money(outstanding)}</strong><small>${plural(invoices.filter((d) => bal(d).balance > 0).length, 'unpaid invoice')}</small></div>
         <div class="card kpi ${overdueN ? 'alert' : ''}"><span>Overdue</span><strong>${money(overdue)}</strong><small>${overdueN} invoice${overdueN === 1 ? '' : 's'} past due</small></div>
@@ -1000,6 +1008,7 @@ function viewSettings(main) {
       <div class="row3">${f('trn', 'Tax Registration Number (TRN)', s.trn, 'inputmode="numeric" placeholder="15 digits"')}
         <div class="field"><label for="s-vat">Default VAT rate (%)</label><input id="s-vat" inputmode="decimal" value="${bpToPercent(s.default_vat_bp ?? 500)}"><span class="hint">5% is the UAE standard rate. Zero-rated, exempt and out-of-scope lines can be chosen per line.</span></div>
         <div class="field"><label for="s-incl">Prices are usually entered</label><select id="s-incl"><option value="0" ${s.prices_include_vat ? '' : 'selected'}>Before VAT</option><option value="1" ${s.prices_include_vat ? 'selected' : ''}>Including VAT</option></select></div></div>
+      <p class="small">${vatConfigured(s) ? `VAT returns are ${Number(s.vat_period_months) === 1 ? 'monthly' : 'quarterly'}, first period from ${formatDate(s.vat_first_start)}, reported for ${esc(s.emirate || 'Dubai')}. ` : 'VAT return periods are not set up yet. '}<a href="#/vat">${vatConfigured(s) ? 'Open VAT returns' : 'Set them up in VAT returns'}</a></p>
       <div class="notice info">${icon('file')}<div class="small"><strong>FTA requirements</strong><br>When VAT registration is ticked and a TRN is entered, invoices and credit notes are laid out as the FTA requires (Articles 59 and 60 of the VAT Executive Regulation):
         <ul class="fta-list"><li>Titled “Tax Invoice” or “Tax Credit Note”, with a sequential number and the date of issue</li><li>Your name, address and TRN, and the client’s name, address and TRN when they are VAT registered</li><li>Date of supply when it differs from the invoice date</li><li>For every line: description, quantity, unit price, any discount, taxable amount, VAT rate and VAT amount</li><li>Total excluding VAT, VAT and total payable, in AED</li><li>Credit notes: the original invoice number and date, its value, the corrected value, the difference, the VAT on it and the reason</li></ul>
         An invoice cannot be issued while your address, or a VAT-registered client’s address, is missing. Issue each tax invoice within 14 days of the date of supply.</div></div>
@@ -1100,3 +1109,273 @@ async function start() {
     app.innerHTML = `<div class="loading">Could not reach the server. ${esc(e.message)}</div>`;
   }
 })();
+
+// ------------------------------------------------------------------ expenses
+const vatData = () => ({ settings: data.settings, documents: data.documents, payments: data.payments, clients: data.clients, expenses: data.expenses || [] });
+
+function viewExpenses(main, params) {
+  const list = data.expenses || [];
+  const year = todayUAE().slice(0, 4);
+  const ytd = list.filter((e) => e.spent_on.startsWith(year));
+  const income = data.documents.filter((d) => (d.type === 'invoice' && d.status === 'issued') || d.type === 'credit_note')
+    .filter((d) => d.issue_date.startsWith(year)).reduce((a, d) => a + (d.type === 'credit_note' ? -d.subtotal : d.subtotal), 0);
+  const spent = ytd.reduce((a, e) => a + e.net + (e.recoverable && (e.kind === 'abroad' || e.has_tax_invoice) ? 0 : e.vat), 0);
+  const claim = ytd.reduce((a, e) => a + (e.recoverable && e.kind === 'uae_vat' && e.has_tax_invoice ? e.vat : 0), 0);
+  main.innerHTML = `<div class="page-head"><div><h1>Expenses</h1><p class="sub">Record what the business spends. The VAT you paid is claimed back on your VAT return.</p></div>
+    <div class="actions"><button class="btn" id="ex-csv">${icon('sheet')}Export CSV</button><button class="btn btn-gold" id="ex-new">${icon('plus')}Add expense</button></div></div>
+    <div class="grid">
+      <div class="kpis">
+        <div class="card kpi"><span>Income ${year}</span><strong>${money(income)}</strong><small>Invoiced, excluding VAT</small></div>
+        <div class="card kpi"><span>Expenses ${year}</span><strong>${money(spent)}</strong><small>${plural(ytd.length, 'expense')}, net of VAT reclaimed</small></div>
+        <div class="card kpi"><span>Profit ${year}</span><strong>${money(income - spent)}</strong><small>Before corporate tax</small></div>
+        <div class="card kpi"><span>VAT reclaimable ${year}</span><strong>${money(claim)}</strong><small>From UAE tax invoices</small></div>
+      </div>
+      <section class="card">${list.length ? `<div class="table-wrap"><table class="list stack"><thead><tr><th>Date</th><th>Paid to</th><th data-m="hide">Category</th><th class="r">Amount</th><th class="r" data-m="hide">VAT</th><th class="r">Claim</th></tr></thead><tbody>
+        ${list.map((e) => `<tr data-exp="${e.id}" style="cursor:pointer"><td data-m="hide" class="nw">${formatDate(e.spent_on)}</td><td><strong>${esc(e.supplier)}</strong><br><span class="small muted"><span class="m-only">${formatDate(e.spent_on)} · </span>${esc(e.description || EXPENSE_KINDS[e.kind])}</span></td>
+          <td data-m="hide">${esc(EXPENSE_CATEGORIES[e.category] || e.category)}</td><td class="r money">${money(e.net + e.vat)}</td>
+          <td class="r money" data-m="hide">${e.kind === 'abroad' ? '<span class="small muted">Reverse charge</span>' : formatMoney(e.vat)}</td>
+          <td class="r">${e.kind === 'no_vat' ? '<span class="chip">No VAT</span>' : e.recoverable && (e.kind === 'abroad' || e.has_tax_invoice) ? '<span class="chip ok">Yes</span>' : '<span class="chip warn">No</span>'}</td></tr>`).join('')}
+      </tbody></table></div>` : `<div class="empty">${icon('wallet')}<p>No expenses yet. Add business costs as you pay them: software, hosting, co-working, phone, professional fees.</p></div>`}</section>
+      <div class="notice info">${icon('file')}<div class="small"><strong>Keeping it right</strong><ul class="fta-list">
+        <li>VAT can be claimed back only with the supplier’s <strong>tax invoice</strong> showing their TRN. Keep it (PDF or photo) for at least 5 years.</li>
+        <li>Paid a supplier outside the UAE (Google, Adobe, Netlify, Apple and similar)? Choose <em>Supplier outside the UAE</em>. VAT is then declared and reclaimed on the same return, so it usually costs nothing, but it must be reported.</li>
+        <li>Client entertainment VAT is not reclaimable, so it is excluded automatically.</li></ul></div></div>
+    </div>`;
+  $('#ex-new').addEventListener('click', () => expenseDialog());
+  $('#ex-csv').addEventListener('click', () => downloadCsv(`Zenith expenses ${todayUAE()}.csv`,
+    ['Date', 'Supplier', 'Supplier TRN', 'Reference', 'Description', 'Category', 'Type', 'Amount excl. VAT', 'VAT', 'Total', 'VAT claimed', 'Notes'],
+    list.map((e) => [e.spent_on, e.supplier, e.supplier_trn, e.reference, e.description, EXPENSE_CATEGORIES[e.category] || e.category, EXPENSE_KINDS[e.kind],
+      (e.net / 100).toFixed(2), (e.vat / 100).toFixed(2), ((e.net + e.vat) / 100).toFixed(2), e.recoverable && (e.kind === 'abroad' || e.has_tax_invoice) ? 'Yes' : 'No', e.notes])));
+  $$('[data-exp]', main).forEach((r) => r.addEventListener('click', () => expenseDialog(list.find((e) => e.id === Number(r.dataset.exp)))));
+  const edit = Number(params?.get('edit'));
+  if (edit) { const e = list.find((x) => x.id === edit); if (e) expenseDialog(e); }
+}
+
+function expenseDialog(e = null) {
+  const x = e || { spent_on: todayUAE(), supplier: '', supplier_trn: '', reference: '', description: '', category: 'software', kind: 'uae_vat', net: 0, vat: 0, recoverable: true, has_tax_invoice: true, notes: '' };
+  const m = (f) => (f ? (f / 100).toFixed(2) : '');
+  openDialog(`<form id="exf" novalidate>
+    <div class="dlg-head"><h2 id="dlg-title">${e ? 'Edit expense' : 'Add expense'}</h2><button type="button" class="btn btn-quiet btn-icon" data-close aria-label="Close">${icon('x')}</button></div>
+    <div class="dlg-body form">
+      <div class="row2"><div class="field"><label for="ex-date">Date paid</label><input id="ex-date" type="date" value="${esc(x.spent_on)}"></div>
+        <div class="field"><label for="ex-sup">Paid to</label><input id="ex-sup" value="${esc(x.supplier)}" placeholder="e.g. Google, du, WeWork"></div></div>
+      <div class="field"><label for="ex-kind">Type</label><select id="ex-kind">${Object.entries(EXPENSE_KINDS).map(([k, l]) => `<option value="${k}" ${k === x.kind ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="row2"><div class="field"><label for="ex-cat">Category</label><select id="ex-cat">${Object.entries(EXPENSE_CATEGORIES).map(([k, l]) => `<option value="${k}" ${k === x.category ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="field"><label for="ex-desc">Description <span class="muted">(optional)</span></label><input id="ex-desc" value="${esc(x.description)}"></div></div>
+      <div class="row3"><div class="field"><label for="ex-net" id="ex-net-l">Amount before VAT (AED)</label><input id="ex-net" class="money-in" inputmode="decimal" value="${m(x.net)}" placeholder="0.00"></div>
+        <div class="field" id="ex-vat-f"><label for="ex-vat">VAT (AED)</label><input id="ex-vat" class="money-in" inputmode="decimal" value="${m(x.vat)}" placeholder="0.00"><span class="hint" id="ex-vat-h"></span></div>
+        <div class="field"><span class="label">Total paid</span><p id="ex-tot" style="padding-top:10px;font-weight:500"></p></div></div>
+      <div class="row2" id="ex-uae"><div class="field"><label for="ex-trn">Supplier TRN</label><input id="ex-trn" inputmode="numeric" value="${esc(x.supplier_trn)}" placeholder="From their tax invoice"></div>
+        <div class="field"><label for="ex-ref">Their invoice number</label><input id="ex-ref" value="${esc(x.reference)}"></div></div>
+      <label class="check" id="ex-ti-l"><input type="checkbox" id="ex-ti" ${x.has_tax_invoice ? 'checked' : ''}><span>I have their tax invoice <span class="small muted">(needed to claim the VAT back)</span></span></label>
+      <label class="check"><input type="checkbox" id="ex-rec" ${x.recoverable ? 'checked' : ''}><span>Used only for the business <span class="small muted">(untick for personal or entertainment costs)</span></span></label>
+      <div class="field"><label for="ex-notes">Notes <span class="muted">(optional)</span></label><input id="ex-notes" value="${esc(x.notes)}"></div>
+      <span class="err" id="ex-err" role="alert"></span>
+    </div>
+    <div class="dlg-foot">${e ? `<button type="button" class="btn btn-quiet" id="ex-del" style="margin-right:auto">${icon('trash')}Delete</button>` : ''}<button type="button" class="btn" data-close>Cancel</button><button class="btn btn-navy" type="submit">Save</button></div></form>`, () => {
+    let vatTouched = !!e;
+    const sync = () => {
+      const kind = $('#ex-kind').value, net = toFils($('#ex-net').value);
+      $('#ex-vat-f').hidden = kind !== 'uae_vat'; $('#ex-uae').hidden = kind !== 'uae_vat'; $('#ex-ti-l').hidden = kind !== 'uae_vat';
+      $('#ex-net-l').textContent = kind === 'uae_vat' ? 'Amount before VAT (AED)' : 'Amount paid (AED)';
+      if (kind === 'uae_vat' && !vatTouched) $('#ex-vat').value = net ? (Math.round(net * 0.05) / 100).toFixed(2) : '';
+      $('#ex-vat-h').textContent = kind === 'uae_vat' ? 'As shown on their invoice' : '';
+      const vat = kind === 'uae_vat' ? toFils($('#ex-vat').value) : 0;
+      $('#ex-tot').textContent = money(net + vat) + (kind === 'abroad' ? ` (VAT ${money(Math.round(net * 0.05))} declared and reclaimed)` : '');
+    };
+    $('#ex-cat').addEventListener('change', () => { if (NOT_RECOVERABLE.includes($('#ex-cat').value)) $('#ex-rec').checked = false; });
+    $('#ex-vat').addEventListener('input', () => { vatTouched = true; });
+    $('#exf').addEventListener('input', sync); $('#ex-kind').addEventListener('change', sync); sync();
+    $('#ex-del')?.addEventListener('click', async () => {
+      if (!(await confirmBox({ title: 'Delete this expense?', body: 'It will be removed from your expenses and VAT figures.', confirm: 'Delete', danger: true }))) return;
+      await api('DELETE', `expenses/${e.id}`); await reload(); toast('Expense deleted.'); go('#/expenses');
+    });
+    $('#exf').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const kind = $('#ex-kind').value;
+      const body = { spent_on: $('#ex-date').value, supplier: $('#ex-sup').value, kind, category: $('#ex-cat').value, description: $('#ex-desc').value,
+        net: toFils($('#ex-net').value), vat: kind === 'uae_vat' ? toFils($('#ex-vat').value) : 0, supplier_trn: kind === 'uae_vat' ? $('#ex-trn').value : '',
+        reference: $('#ex-ref').value, has_tax_invoice: $('#ex-ti').checked, recoverable: $('#ex-rec').checked, notes: $('#ex-notes').value };
+      await busy(ev.submitter, async () => {
+        try { await api(e ? 'PUT' : 'POST', e ? `expenses/${e.id}` : 'expenses', body); }
+        catch (err) { $('#ex-err').textContent = err.message; return; }
+        await reload(); dlg.close(); toast('Expense saved.'); go('#/expenses');
+      });
+    });
+  });
+}
+
+// ------------------------------------------------------------------ VAT returns
+function vatOverview() {
+  const today = todayUAE();
+  return periods(data.settings, today).map((p) => {
+    const r = vatReturn(vatData(), p);
+    const rec = (data.vat_returns || []).find((x) => x.period_start === p.start);
+    return { ...r, rec, status: periodStatus(p, rec, rec?.boxes ? rec.boxes.b14 : r.boxes.b14, today) };
+  });
+}
+const vatChip = (st) => `<span class="chip ${{ open: 'info', due: 'warn', late: 'danger', done: 'ok' }[st.key]}">${esc(st.label)}</span>`;
+const periodName = (p) => `${formatDate(p.start)} – ${formatDate(p.end)}`;
+
+// The single most urgent VAT task, for the dashboard
+function vatNextTask() {
+  if (!data.settings.vat_registered) return null;
+  if (!vatConfigured(data.settings)) return { tone: 'warn', html: `<strong>Set up your VAT periods.</strong> Enter the first tax period from your FTA registration certificate so returns and deadlines can be worked out. <a href="#/vat">Open VAT returns</a>` };
+  const list = vatOverview();
+  const urgent = list.filter((x) => x.status.key === 'late' || x.status.key === 'due').sort((a, b) => a.due.localeCompare(b.due))[0];
+  if (urgent) {
+    const pay = urgent.rec?.boxes ? urgent.rec.boxes.b14 : urgent.boxes.b14;
+    return { tone: urgent.status.key === 'late' ? 'danger' : 'warn', html: `<strong>VAT return ${esc(urgent.status.label.toLowerCase())}.</strong> ${esc(periodName(urgent))}: ${pay >= 0 ? `${money(pay)} to pay` : `${money(-pay)} refund`} by ${formatDate(urgent.due)}. <a href="#/vat/${urgent.start}">Open the return</a>` };
+  }
+  const cur = list.find((x) => x.status.key === 'open');
+  return cur ? { tone: 'info', html: `<strong>VAT this period so far:</strong> ${money(cur.boxes.b14)} ${cur.boxes.b14 >= 0 ? 'to pay' : 'refund'}. Return due ${formatDate(cur.due)}. <a href="#/vat/${cur.start}">See the figures</a>` } : null;
+}
+
+function viewVat(main, setup = false) {
+  const s = data.settings;
+  if (!s.vat_registered || !s.trn) {
+    main.innerHTML = `<div class="page-head"><div><h1>VAT returns</h1></div></div><div class="notice">${icon('warn')}<div>Tick <strong>Registered for UAE VAT</strong> and enter your TRN in <a href="#/settings">Business settings</a> first.</div></div>`;
+    return;
+  }
+  if (!vatConfigured(s) || setup) {
+    main.innerHTML = `<div class="page-head"><div><h1>VAT returns</h1><p class="sub">One-time setup from your FTA VAT registration certificate.</p></div></div>
+      <section class="card card-pad form" style="max-width:720px"><form id="vs" class="form" novalidate>
+        <p>Your certificate (in EmaraTax under <em>My Certificates</em>) shows your <strong>first tax period</strong> and whether you file <strong>quarterly</strong> or monthly. Enter them here.</p>
+        <div class="row2"><div class="field"><label for="vs-start">First tax period starts</label><input id="vs-start" type="date" value="${esc(s.vat_first_start || '')}"></div>
+          <div class="field"><label for="vs-end">First tax period ends</label><input id="vs-end" type="date" value="${esc(s.vat_first_end || '')}"><span class="hint">Usually 3 months later. Leave blank if it is a normal quarter.</span></div></div>
+        <div class="row2"><div class="field"><label for="vs-m">Returns are filed</label><select id="vs-m"><option value="3" ${Number(s.vat_period_months) !== 1 ? 'selected' : ''}>Quarterly</option><option value="1" ${Number(s.vat_period_months) === 1 ? 'selected' : ''}>Monthly</option></select></div>
+          <div class="field"><label for="vs-em">Emirate where the business is based</label><select id="vs-em">${EMIRATES.map((e) => `<option ${e === (s.emirate || 'Dubai') ? 'selected' : ''}>${e}</option>`).join('')}</select></div></div>
+        <span class="err" id="vs-err" role="alert"></span>
+        <div><button class="btn btn-gold" type="submit">Save and show my returns</button></div></form></section>`;
+    $('#vs').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!$('#vs-start').value) { $('#vs-err').textContent = 'Please enter the date your first tax period starts.'; return; }
+      await busy(e.submitter, async () => {
+        try { await api('PUT', 'settings', { vat_first_start: $('#vs-start').value, vat_first_end: $('#vs-end').value, vat_period_months: Number($('#vs-m').value), emirate: $('#vs-em').value }); }
+        catch (err) { $('#vs-err').textContent = err.message; return; }
+        await reload(); route();
+      });
+    });
+    return;
+  }
+  const list = vatOverview();
+  const task = vatNextTask();
+  const year = todayUAE().slice(0, 4);
+  const paidYear = list.filter((x) => x.rec?.paid_on?.startsWith(year)).reduce((a, x) => a + Math.max(0, x.rec.boxes?.b14 ?? x.boxes.b14), 0);
+  const cur = list.find((x) => x.status.key === 'open');
+  main.innerHTML = `<div class="page-head"><div><h1>VAT returns</h1><p class="sub">Worked out from your invoices, credit notes, payments and expenses. ${Number(s.vat_period_months) === 1 ? 'Monthly' : 'Quarterly'} returns, ${esc(s.emirate || 'Dubai')}.</p></div>
+    <div class="actions"><a class="btn" href="#/expenses">${icon('wallet')}Expenses</a><button class="btn btn-quiet" id="vat-setup">Change periods</button></div></div>
+    <div class="grid">
+      ${task ? `<div class="notice ${task.tone === 'info' ? 'info' : ''}">${icon(task.tone === 'info' ? 'clock' : 'warn')}<div>${task.html}</div></div>` : ''}
+      <div class="kpis">
+        <div class="card kpi"><span>This period so far</span><strong>${cur ? money(cur.boxes.b14) : '–'}</strong><small>${cur ? `${cur.boxes.b14 >= 0 ? 'VAT to pay' : 'Refund'}, due ${formatDate(cur.due)}` : ''}</small></div>
+        <div class="card kpi"><span>VAT charged</span><strong>${cur ? money(cur.boxes.b12) : '–'}</strong><small>On sales this period</small></div>
+        <div class="card kpi"><span>VAT reclaimable</span><strong>${cur ? money(cur.boxes.b13) : '–'}</strong><small>On expenses this period</small></div>
+        <div class="card kpi"><span>VAT paid ${year}</span><strong>${money(paidYear)}</strong><small>Returns marked paid</small></div>
+      </div>
+      <section class="card"><div class="card-head"><h2>Tax periods</h2></div>
+        <div class="table-wrap"><table class="list"><thead><tr><th>Period</th><th data-m="hide">Deadline</th><th class="r">VAT to pay</th><th class="r">Status</th></tr></thead><tbody>
+        ${list.map((x) => `<tr data-href="#/vat/${x.start}"><td><a class="rowlink" href="#/vat/${x.start}">${esc(periodName(x))}</a></td><td data-m="hide">${formatDate(x.due)}</td>
+          <td class="r money">${money(x.rec?.boxes ? x.rec.boxes.b14 : x.boxes.b14)}</td><td class="r">${vatChip(x.status)}</td></tr>`).join('')}
+        </tbody></table></div></section>
+      ${vatHowTo()}
+    </div>`;
+  bindDocTable(main);
+  $('#vat-setup').addEventListener('click', () => viewVat(main, true));
+}
+
+function vatHowTo() {
+  return `<section class="card card-pad"><h2 class="section-title">What to do, and when</h2>
+    <ol class="steps">
+      <li><strong>As you go.</strong> Issue invoices from here, record payments when they arrive, and add every business expense under <a href="#/expenses">Expenses</a> with the supplier’s tax invoice.</li>
+      <li><strong>When a period ends.</strong> Open the return here and check the figures. Anything you forgot can still be added before you file.</li>
+      <li><strong>File by the 28th day after the period ends.</strong> Sign in at <a href="https://eservices.tax.gov.ae" target="_blank" rel="noopener">EmaraTax</a> → VAT → VAT Returns → File, and type in each box exactly as shown here.</li>
+      <li><strong>Pay by the same deadline.</strong> Use the payment options EmaraTax offers (GIBAN bank transfer, card or e-Dirham). Bank transfers can take a few days, so pay early.</li>
+      <li><strong>Mark it filed and paid here</strong> with the reference number, so the figures are locked and you are not reminded again.</li>
+    </ol>
+    <p class="small muted">Late filing and late payment carry FTA penalties. A mistake found after filing that changes the tax by AED 10,000 or less can be corrected in the next return; above that, a voluntary disclosure is needed. You will get a reminder email 14, 7 and 2 days before each deadline while email sending is set up.</p></section>`;
+}
+
+function viewVatPeriod(main, start) {
+  const x = vatOverview().find((p) => p.start === start);
+  if (!x) { main.innerHTML = '<div class="empty">VAT period not found. <a href="#/vat">Back to VAT returns</a></div>'; return; }
+  const live = x.boxes, filed = x.rec?.boxes || null, b = filed || live;
+  const changed = filed && (filed.b12 !== live.b12 || filed.b13 !== live.b13);
+  const diff = changed ? (live.b14 - filed.b14) : 0;
+  const row = (no, label, amt, vat, opts = {}) => `<tr class="${opts.cls || ''}"><td class="bx">${no}</td><td>${label}</td><td class="r money">${amt === null ? '' : `<button type="button" class="copy" data-copy="${(amt / 100).toFixed(2)}" title="Copy">${formatMoney(amt)}</button>`}</td><td class="r money">${vat === null ? '' : `<button type="button" class="copy" data-copy="${(vat / 100).toFixed(2)}" title="Copy">${formatMoney(vat)}</button>`}</td></tr>`;
+  const e1 = EMIRATES.map((em, i) => row(`1${'abcdefg'[i]}`, `Standard rated supplies in ${em}`, b.b1[em].net, b.b1[em].vat, { cls: b.b1[em].net || b.b1[em].vat ? '' : 'zero' })).join('');
+  const sales = x.rows.filter((r) => r.source === 'sale'), exps = x.rows.filter((r) => r.source === 'expense');
+  main.innerHTML = `<a class="crumb" href="#/vat">${icon('back')}VAT returns</a>
+    <div class="page-head"><div><h1>VAT return</h1><p class="sub">${esc(periodName(x))} · due ${formatDate(x.due)}</p></div>
+      <div class="actions">${vatChip(x.status)}<button class="btn" id="vp-csv">${icon('sheet')}Export CSV</button><button class="btn btn-gold" id="vp-file">${x.rec?.filed_on ? 'Update filing' : 'Mark as filed'}</button></div></div>
+    <div class="grid">
+      ${x.status.todo ? `<div class="notice ${x.status.key === 'open' ? 'info' : ''}">${icon(x.status.key === 'open' ? 'clock' : 'warn')}<div><strong>${esc(x.status.todo)}</strong> ${b.b14 >= 0 ? `VAT to pay: <strong>${money(b.b14)}</strong>.` : `Refund due to you: <strong>${money(-b.b14)}</strong>.`}</div></div>` : ''}
+      ${changed ? `<div class="notice">${icon('warn')}<div><strong>Figures have changed since this return was filed.</strong> The tax payable is now ${money(live.b14)} instead of ${money(filed.b14)} (difference ${money(diff)}). ${Math.abs(diff) <= 1000000 ? 'Because the difference is AED 10,000 or less, include it in your next return.' : 'Because the difference is more than AED 10,000, file a voluntary disclosure on EmaraTax.'}</div></div>` : ''}
+      ${x.rec?.filed_on ? `<div class="notice info">${icon('file')}<div>Filed on ${formatDate(x.rec.filed_on)}${x.rec.reference ? `, reference ${esc(x.rec.reference)}` : ''}${x.rec.paid_on ? `; paid on ${formatDate(x.rec.paid_on)}` : ''}. The boxes below are the figures you filed.</div></div>` : ''}
+      <section class="card"><div class="card-head"><h2>VAT201: the boxes to fill in on EmaraTax</h2><span class="small muted">Click a figure to copy it</span></div>
+        <div class="table-wrap"><table class="list vat201"><thead><tr><th>Box</th><th>Description</th><th class="r">Amount (AED)</th><th class="r">VAT (AED)</th></tr></thead><tbody>
+          <tr class="grp"><td colspan="4">VAT on sales and all other outputs</td></tr>
+          ${e1}
+          ${row('2', 'Tax refunds provided to tourists', 0, 0, { cls: 'zero' })}
+          ${row('3', 'Supplies subject to the reverse charge (services bought from abroad)', b.b3.net, b.b3.vat, { cls: b.b3.net ? '' : 'zero' })}
+          ${row('4', 'Zero rated supplies', b.b4.net, null, { cls: b.b4.net ? '' : 'zero' })}
+          ${row('5', 'Exempt supplies', b.b5.net, null, { cls: b.b5.net ? '' : 'zero' })}
+          ${row('6', 'Goods imported into the UAE', 0, 0, { cls: 'zero' })}
+          ${row('7', 'Adjustments to goods imported', 0, 0, { cls: 'zero' })}
+          ${row('8', 'Totals', b.b8.net, b.b8.vat, { cls: 'tot' })}
+          <tr class="grp"><td colspan="4">VAT on expenses and all other inputs</td></tr>
+          ${row('9', 'Standard rated expenses', b.b9.net, b.b9.vat, { cls: b.b9.net ? '' : 'zero' })}
+          ${row('10', 'Supplies subject to the reverse charge', b.b10.net, b.b10.vat, { cls: b.b10.net ? '' : 'zero' })}
+          ${row('11', 'Totals', b.b11.net, b.b11.vat, { cls: 'tot' })}
+          <tr class="grp"><td colspan="4">Net VAT due</td></tr>
+          ${row('12', 'Total value of due tax for the period', null, b.b12)}
+          ${row('13', 'Total value of recoverable tax for the period', null, b.b13)}
+          ${row('14', b.b14 >= 0 ? 'Payable tax for the period' : 'Refundable tax for the period (enter as a positive figure)', null, Math.abs(b.b14), { cls: 'tot' })}
+        </tbody></table></div>
+        <p class="small muted" style="padding:0 var(--s5) var(--s4)">${b.outside?.net ? `${money(b.outside.net)} of sales outside the scope of VAT are not reported on the return. ` : ''}${b.notClaimed?.vat ? `${money(b.notClaimed.vat)} of VAT on expenses is not claimed (no tax invoice, personal or entertainment). ` : ''}Box 1 is reported for ${esc(x.emirate)}, where the business is based.</p></section>
+      <div class="grid-2">
+        <section class="card"><div class="card-head"><h2>Sales in this return</h2></div>${sales.length ? vatRows(sales) : '<div class="empty"><p>No invoices, credit notes or advance payments in this period.</p></div>'}</section>
+        <section class="card"><div class="card-head"><h2>Expenses in this return</h2><a class="btn btn-quiet" href="#/expenses">Add expense</a></div>${exps.length ? vatRows(exps) : '<div class="empty"><p>No expenses recorded in this period.</p></div>'}</section>
+      </div>
+      ${vatHowTo()}
+    </div>`;
+  bindDocTable(main);
+  $$('[data-copy]', main).forEach((btn) => btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.copy); toast(`Copied ${btn.dataset.copy}`); } catch { toast('Copy is not available here.', 'error'); }
+  }));
+  $('#vp-csv').addEventListener('click', () => downloadCsv(`Zenith VAT ${x.start} to ${x.end}.csv`, ['Date', 'Type', 'Reference', 'Client or supplier', 'Amount excl. VAT', 'VAT', 'VAT claimed'],
+    x.rows.map((r) => [r.date, r.kind, r.ref, r.party, (r.net / 100).toFixed(2), (r.vat / 100).toFixed(2), r.source === 'expense' ? (r.claim ? 'Yes' : 'No') : ''])));
+  $('#vp-file').addEventListener('click', () => vatFileDialog(x));
+}
+
+function vatRows(rows) {
+  return `<div class="table-wrap"><table class="list stack"><thead><tr><th>Date</th><th>What</th><th class="r">Amount</th><th class="r">VAT</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr data-href="${r.href}"><td data-m="hide" class="nw">${formatDate(r.date)}</td><td><a class="rowlink" href="${r.href}">${esc(r.party || '')}</a><br><span class="small muted"><span class="m-only">${formatDate(r.date)} · </span>${esc(r.kind)}${r.ref ? ` · ${esc(r.ref)}` : ''}${r.source === 'expense' && !r.claim && r.vat ? ' · not claimed' : ''}</span></td>
+      <td class="r money">${formatMoney(r.net)}</td><td class="r money"><span class="m-only small muted">VAT </span>${formatMoney(r.vat)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+function vatFileDialog(x) {
+  const r = x.rec || {};
+  const today = todayUAE();
+  openDialog(`<form id="vf" novalidate>
+    <div class="dlg-head"><h2 id="dlg-title">Record filing</h2><button type="button" class="btn btn-quiet btn-icon" data-close aria-label="Close">${icon('x')}</button></div>
+    <div class="dlg-body form">
+      <p class="muted small">Record this once you have submitted the return on EmaraTax. The current figures are saved with it, so later changes are flagged instead of silently changing a filed return.</p>
+      <div class="row2"><div class="field"><label for="vf-filed">Filed on</label><input id="vf-filed" type="date" value="${esc(r.filed_on || today)}"></div>
+        <div class="field"><label for="vf-ref">EmaraTax reference <span class="muted">(optional)</span></label><input id="vf-ref" value="${esc(r.reference || '')}"></div></div>
+      <div class="field"><label for="vf-paid">VAT paid on <span class="muted">(leave blank until paid)</span></label><input id="vf-paid" type="date" value="${esc(r.paid_on || '')}"></div>
+      <span class="err" id="vf-err" role="alert"></span>
+    </div>
+    <div class="dlg-foot">${r.filed_on ? '<button type="button" class="btn btn-quiet" id="vf-undo" style="margin-right:auto">Mark as not filed</button>' : ''}<button type="button" class="btn" data-close>Cancel</button><button class="btn btn-navy" type="submit">Save</button></div></form>`, () => {
+    const save = async (body, btn) => busy(btn, async () => {
+      try { await api('PUT', `vat-returns/${x.start}`, { period_end: x.end, ...body }); } catch (err) { $('#vf-err').textContent = err.message; return; }
+      await reload(); dlg.close(); toast('VAT return updated.'); route();
+    });
+    $('#vf-undo')?.addEventListener('click', (e) => save({ filed_on: null, paid_on: null, reference: '' }, e.currentTarget));
+    $('#vf').addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (!$('#vf-filed').value) { $('#vf-err').textContent = 'Please enter the date you filed.'; return; }
+      save({ filed_on: $('#vf-filed').value, reference: $('#vf-ref').value, paid_on: $('#vf-paid').value || null, boxes: r.boxes || x.boxes }, e.submitter);
+    });
+  });
+}
