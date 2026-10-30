@@ -651,3 +651,31 @@ ol.process{margin:0;padding:0;list-style:none}
 
 /* Same bold white intro line on every hero, every screen size */
 .hero .lede{color:#F4EFE6;font-weight:500;text-shadow:0 1px 2px rgb(10 19 38 / .9),0 0 18px rgb(10 19 38 / .75)}
+
+/* =========================================================
+   Phones held sideways (short landscape screens)
+   ========================================================= */
+@media (orientation:landscape) and (max-height:520px){
+  :root{--head-h:60px}
+  .brand img{height:34px}
+  .site-head .wrap{min-height:var(--head-h)}
+  /* Heroes fill the screen, copy left on a strong navy fade */
+  .hero,.page-hero.has-art{min-height:100svh;align-items:center}
+  .hero .wrap,.page-hero .wrap{padding-top:calc(var(--head-h) + var(--s4));padding-bottom:var(--s5)}
+  .hero-copy,.page-hero .wrap{justify-items:start;text-align:left;gap:var(--s3)}
+  .hero .eyebrow,.page-hero .crumbs{justify-content:flex-start}
+  .hero .eyebrow::before{display:block}
+  .hero h1{font-size:clamp(1.9rem,5.2vw,2.6rem);text-shadow:0 2px 18px rgb(10 19 38 / .7)}
+  .page-hero h1{font-size:clamp(1.8rem,4.8vw,2.4rem);max-width:20ch;margin-inline:0;text-align:left}
+  .hero h1,.hero-copy > *,.page-hero .wrap > *{margin-inline:0;text-align:left}
+  .hero .lede,.page-hero .lede{font-size:.95rem;line-height:1.5;max-width:40ch;margin-inline:0}
+  .hero .actions{display:flex;width:auto;margin-top:var(--s2)}
+  .hero .actions .btn{min-height:44px;padding:0 var(--s5)}
+  .hero-media img,.page-hero .bg img{object-position:70% 55%}
+  .hero::before,.page-hero.has-art::before{background:linear-gradient(90deg,rgb(10 19 38 / .95) 0%,rgb(10 19 38 / .85) 38%,rgb(10 19 38 / .45) 58%,rgb(10 19 38 / .05) 78%)}
+  .scroll-cue{display:none!important}
+  /* Menu: tabs in two columns so all fit on the short screen */
+  .nav-links{grid-template-columns:1fr 1fr;grid-template-rows:none;grid-auto-rows:64px;column-gap:var(--s4);align-content:start;padding:var(--s4) var(--s6)}
+  .nav-links a:not(.btn)::before{height:48px}
+  .nav-links a:not(.btn):not(:last-child)::after,.nav-links a:not(.btn) > .gem{display:none!important}
+}
