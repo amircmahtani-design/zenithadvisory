@@ -911,7 +911,9 @@ function emailDialog({ kind, doc, payment }) {
   };
   const tkey = kind === 'credit_note' ? 'invoice' : kind;
   const subject = fillTemplate(s[`email_${tkey}_subject`], vals);
-  const text = fillTemplate(s[`email_${tkey}_body`], vals) + (s.email_signature ? `\n\n${s.email_signature}` : '');
+  const text = fillTemplate(s[`email_${tkey}_body`], vals);
+  const plainSig = [s.email_signoff || 'Kind regards,', '', s.email_sign_name, s.email_sign_title, s.email_sign_department, s.legal_name || 'Zenith Advisory Services', [data.mail.from || s.email, s.email_sign_phone, s.website].filter(Boolean).join(' | ')]
+    .filter((x, i) => i < 2 || String(x || '').trim()).join('\n') + (s.email_disclaimer ? `\n\n--\n${s.email_disclaimer}` : '');
   const view = payment ? buildReceiptView(payment, ctx()) : buildDocView(doc, ctx());
   const filename = `${view.title} ${view.number} ${c.name || ''}`.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() + '.pdf';
   const configured = data.mail.configured;
@@ -924,6 +926,7 @@ function emailDialog({ kind, doc, payment }) {
       <div class="field"><label for="em-sub">Subject</label><input id="em-sub" value="${esc(subject)}"></div>
       <div class="field"><label for="em-text">Message</label><textarea id="em-text" rows="11">${esc(text)}</textarea></div>
       <p class="small" style="display:flex;align-items:center;gap:8px">${icon('file')}<span>Attached: <strong>${esc(filename)}</strong></span></p>
+      ${configured ? '<p class="small muted">Your signature, logo and disclaimer are added automatically below the message.</p>' : ''}
       ${configured ? '<label class="check"><input type="checkbox" id="em-copy" checked><span>Send me a copy</span></label>' : ''}
     </div>
     <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button>
@@ -934,7 +937,7 @@ function emailDialog({ kind, doc, payment }) {
       const to = $('#em-to').value.trim();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) { $('#em-err').textContent = 'Please enter the client’s email address.'; $('#em-to').setAttribute('aria-invalid', 'true'); $('#em-to').focus(); return; }
       if (!configured) {
-        location.href = `mailto:${encodeURIComponent(to)}?${$('#em-cc').value.trim() ? `cc=${encodeURIComponent($('#em-cc').value.trim())}&` : ''}subject=${encodeURIComponent($('#em-sub').value)}&body=${encodeURIComponent($('#em-text').value)}`;
+        location.href = `mailto:${encodeURIComponent(to)}?${$('#em-cc').value.trim() ? `cc=${encodeURIComponent($('#em-cc').value.trim())}&` : ''}subject=${encodeURIComponent($('#em-sub').value)}&body=${encodeURIComponent(`${$('#em-text').value.trim()}\n\n${plainSig}`)}`;
         dlg.close();
         return;
       }
@@ -994,7 +997,12 @@ function viewSettings(main) {
       ${data.mail.configured
         ? `<div class="notice info">${icon('mail')}<div class="small">Emails are sent from <strong>${esc(data.mail.from)}</strong> through your Google Workspace account. Sent emails also appear in its Sent folder when you tick “Send me a copy”.</div></div>`
         : `<div class="notice">${icon('warn')}<div class="small"><strong>Email sending is not connected yet.</strong> Until it is, “Email to client” opens your own mail app with the text filled in, and you attach the downloaded PDF. Setup steps are in the README.</div></div>`}
-      <div class="row2">${f('email_from_name', 'Sender name', s.email_from_name)}<div class="field"><label for="s-email_signature">Signature</label><textarea id="s-email_signature" rows="4">${esc(s.email_signature)}</textarea></div></div>
+      ${f('email_from_name', 'Sender name (shown in the client’s inbox)', s.email_from_name)}
+      <h3 class="section-title" style="margin:8px 0 0">Signature</h3>
+      <div class="row3">${f('email_signoff', 'Sign-off', s.email_signoff)}${f('email_sign_name', 'Name <span class="muted">(optional)</span>', s.email_sign_name, 'placeholder="A real team member, if any"')}${f('email_sign_title', 'Title <span class="muted">(optional)</span>', s.email_sign_title, 'placeholder="e.g. Finance Manager"')}</div>
+      <div class="row2">${f('email_sign_department', 'Department', s.email_sign_department)}${f('email_sign_phone', 'Phone <span class="muted">(optional)</span>', s.email_sign_phone, 'type="tel"')}</div>
+      <div class="field"><label for="s-email_disclaimer">Disclaimer</label><textarea id="s-email_disclaimer" rows="7">${esc(s.email_disclaimer)}</textarea><span class="hint">The Zenith logo, your email address, website and business address are added to every signature automatically.</span></div>
+      <div class="field"><span class="label">Preview</span><div id="sig-prev" style="padding:20px;border:1px solid var(--line);border-radius:8px;background:#fff"></div></div>
       <p class="small muted">Standard wording. You can change any email before it is sent. These words are replaced automatically: {name} {number} {total} {balance} {amount} {currency} {due_date} {date} {company}</p>
       ${[['proforma', 'Proforma'], ['invoice', 'Invoice'], ['receipt', 'Receipt'], ['reminder', 'Payment reminder']].map(([k, t]) => `
       <details class="field"><summary style="cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600">${t} email</summary>
@@ -1005,6 +1013,20 @@ function viewSettings(main) {
       <a class="btn" href="/api/export" download>${icon('down')}Download a full backup (JSON)</a>
       <button class="btn btn-gold btn-lg" type="submit">Save settings</button></div>
   </form>`;
+  const drawSig = () => {
+    const v = (id) => $(`#s-${id}`).value.trim();
+    const lines = [v('email_sign_name'), v('email_sign_title'), v('email_sign_department'), s.legal_name || 'Zenith Advisory Services'].filter(Boolean);
+    const contact = [data.mail.from || 'finance@zenithadvisory.ae', v('email_sign_phone'), s.website || 'zenithadvisory.ae'].filter(Boolean);
+    const address = String(s.address || '').split(/\n+/).map((x) => x.trim()).filter(Boolean).join(', ') || 'Dubai, United Arab Emirates';
+    $('#sig-prev').innerHTML = `<div style="font-family:Helvetica,Arial,sans-serif;color:#1E2638">
+      <div style="font-size:14px;margin-bottom:12px">${esc(v('email_signoff') || 'Kind regards,')}</div>
+      ${lines.map((l, i) => `<div style="font-size:${i ? 13 : 15}px;line-height:1.5;${i ? 'color:#4A5367' : 'font-weight:700;color:#14234A'}">${esc(l)}</div>`).join('')}
+      <div style="display:flex;align-items:center;gap:16px;margin:14px 0 12px"><img src="/assets/img/email-logo.png" alt="" style="width:170px;padding-right:16px;border-right:2px solid #C29B4E">
+        <div style="font-size:12px;line-height:1.7;color:#4A5367">${contact.map(esc).join('<br>')}<br>${esc(address)}</div></div>
+      <div style="border-top:1px solid #E2DACB;padding-top:12px;font-size:10.5px;line-height:1.55;color:#8A909C">${esc(v('email_disclaimer')).split(/\n{2,}/).map((p) => `<p style="margin:0 0 8px">${p}</p>`).join('')}</div></div>`;
+  };
+  drawSig();
+  ['email_signoff', 'email_sign_name', 'email_sign_title', 'email_sign_department', 'email_sign_phone', 'email_disclaimer'].forEach((k) => $(`#s-${k}`).addEventListener('input', drawSig));
   let logo = s.logo_data_url || '';
   $('#s-logo').addEventListener('change', (e) => {
     const file = e.target.files[0]; if (!file) return;
@@ -1024,7 +1046,8 @@ function viewSettings(main) {
       currency: v('currency'), invoice_due_days: v('invoice_due_days'), proforma_valid_days: v('proforma_valid_days'), payment_terms: v('payment_terms'),
       prefix_proforma: v('prefix_proforma'), prefix_invoice: v('prefix_invoice'), prefix_credit_note: v('prefix_credit_note'), prefix_receipt: v('prefix_receipt'),
       logo_data_url: logo,
-      email_from_name: v('email_from_name'), email_signature: v('email_signature'),
+      email_from_name: v('email_from_name'), email_signoff: v('email_signoff'), email_sign_name: v('email_sign_name'), email_sign_title: v('email_sign_title'),
+      email_sign_department: v('email_sign_department'), email_sign_phone: v('email_sign_phone'), email_disclaimer: v('email_disclaimer'),
       ...Object.fromEntries(['proforma', 'invoice', 'receipt', 'reminder'].flatMap((k) => [[`email_${k}_subject`, v(`email_${k}_subject`)], [`email_${k}_body`, v(`email_${k}_body`)]])),
       counters: Object.fromEntries(['proforma', 'invoice', 'credit_note', 'receipt'].map((k) => [k, Number(v(`n-${k}`))])),
     };

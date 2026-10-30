@@ -244,7 +244,8 @@ const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
   bank_name: "text", account_name: "text", account_number: "text", iban: "text", swift: "text", payment_instructions: "text",
   currency: "text", default_vat_bp: "int", prices_include_vat: "bool", payment_terms: "text", invoice_due_days: "int",
   proforma_valid_days: "int", prefix_proforma: "text", prefix_invoice: "text", prefix_credit_note: "text", prefix_receipt: "text",
-  email_from_name: "text", email_signature: "text",
+  email_from_name: "text", email_signoff: "text", email_sign_name: "text", email_sign_title: "text", email_sign_department: "text",
+  email_sign_phone: "text", email_disclaimer: "text",
   email_proforma_subject: "text", email_proforma_body: "text", email_invoice_subject: "text", email_invoice_body: "text",
   email_receipt_subject: "text", email_receipt_body: "text", email_reminder_subject: "text", email_reminder_body: "text",
 };
@@ -482,6 +483,38 @@ function transport() {
 const emailList = (v: unknown) => String(v ?? "").split(/[,;\s]+/).map((x) => x.trim()).filter(Boolean);
 const validEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 
+const escHtml = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+
+// Signature block shared by every email: sign-off, name/title (optional), department, company, logo, contacts, disclaimer
+function signature(st: any, fromAddr: string) {
+  const company = st.legal_name || "Zenith Advisory Services";
+  const website = st.website || "zenithadvisory.ae";
+  const lines = [st.email_sign_name, st.email_sign_title, st.email_sign_department, company].map((x) => String(x || "").trim()).filter(Boolean);
+  const contact = [fromAddr, st.email_sign_phone, website].filter(Boolean);
+  const address = String(st.address || "").split(/\n+/).map((x) => x.trim()).filter(Boolean).join(", ") || "Dubai, United Arab Emirates";
+  const disclaimer = String(st.email_disclaimer || "").trim();
+  const text = [st.email_signoff || "Kind regards,", "", ...lines, contact.join(" | "), address, ...(disclaimer ? ["", "--", disclaimer] : [])].join("\n");
+  const html = (withLogo: boolean) => `
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:28px;font-family:Helvetica,Arial,sans-serif;color:#1E2638">
+  <tr><td style="font-size:14px;padding-bottom:14px">${escHtml(st.email_signoff || "Kind regards,")}</td></tr>
+  ${lines.map((l, i) => `<tr><td style="font-size:${i === 0 ? 15 : 13}px;${i === 0 ? "font-weight:bold;color:#14234A;" : "color:#4A5367;"}line-height:1.5">${escHtml(l)}</td></tr>`).join("")}
+  <tr><td style="padding:14px 0 12px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
+    ${withLogo ? `<td style="padding-right:16px;border-right:2px solid #C29B4E"><img src="cid:zenith-logo" width="170" alt="${escHtml(company)}" style="display:block;width:170px;height:auto;border:0"></td>` : ""}
+    <td style="${withLogo ? "padding-left:16px;" : ""}font-size:12px;line-height:1.7;color:#4A5367">
+      ${contact.map((c) => (c.includes("@") ? `<a href="mailto:${escHtml(c)}" style="color:#14234A;text-decoration:none">${escHtml(c)}</a>` : /^[+\d][\d\s()-]+$/.test(c) ? `<a href="tel:${escHtml(c.replace(/\s+/g, ""))}" style="color:#14234A;text-decoration:none">${escHtml(c)}</a>` : `<a href="https://${escHtml(c.replace(/^https?:\/\//, ""))}" style="color:#A9853F;text-decoration:none">${escHtml(c)}</a>`)).join("<br>")}<br>${escHtml(address)}
+    </td></tr></table></td></tr>
+  ${disclaimer ? `<tr><td style="padding-top:14px;border-top:1px solid #E2DACB;font-size:10.5px;line-height:1.55;color:#8A909C;max-width:600px">${disclaimer.split(/\n{2,}/).map((p) => `<p style="margin:0 0 8px">${escHtml(p).replace(/\n/g, "<br>")}</p>`).join("")}</td></tr>` : ""}
+</table>`;
+  return { text, html };
+}
+
+function emailHtml(text: string, sigHtml: string) {
+  const body = text.trim().split(/\n{2,}/).map((p) => `<p style="margin:0 0 14px">${escHtml(p).replace(/\n/g, "<br>")}</p>`).join("");
+  return `<!doctype html><html><body style="margin:0;padding:0;background:#ffffff">
+<div style="max-width:640px;padding:8px 4px;font-family:Helvetica,Arial,sans-serif;font-size:14px;line-height:1.6;color:#1E2638">${body}${sigHtml}</div>
+</body></html>`;
+}
+
 async function sendEmail(req: Request, body: any) {
   if (!mailConfigured()) throw new HttpError(503, "Email is not set up yet. Add SMTP_USER, SMTP_PASS and MAIL_FROM in Netlify (see README).");
   const to = emailList(body.to), cc = emailList(body.cc);
@@ -503,11 +536,18 @@ async function sendEmail(req: Request, body: any) {
   const settings = await getSettings();
   const fromAddr = mailFrom(settings);
   const fromName = settings.email_from_name || settings.legal_name || "Zenith Advisory Services";
+  const sig = signature(settings, fromAddr);
+  // Logo embedded in the message so it shows without the recipient loading remote images
+  const logo = await fetch(new URL("/assets/img/email-logo.png", req.url)).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
+  if (logo) attachments.push({ filename: "zenith-logo.png", content: Buffer.from(logo), cid: "zenith-logo", contentDisposition: "inline" });
   try {
-    await transport().sendMail({
+    const info: any = await transport().sendMail({
       from: { name: fromName, address: fromAddr }, replyTo: fromAddr, to, cc: cc.length ? cc : undefined,
-      bcc: body.copy_me ? fromAddr : undefined, subject, text, attachments,
+      bcc: body.copy_me ? fromAddr : undefined, subject, attachments,
+      text: `${text.trim()}\n\n${sig.text}`,
+      html: emailHtml(text, sig.html(!!logo)),
     });
+    if (Netlify.env.get("MAIL_TRANSPORT") === "test") console.log("TEST_MAIL " + info.message);
   } catch (e: any) {
     console.error("mail", e?.message);
     throw new HttpError(502, "The email could not be sent. Please check the email settings in Netlify and try again.");
