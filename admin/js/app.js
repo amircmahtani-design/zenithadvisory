@@ -198,10 +198,11 @@ function renderShell() {
   const newEnq = data.enquiries.filter((e) => e.status === 'new').length;
   app.innerHTML = `<div class="shell">
     <header class="topbar"><button type="button" id="menu-btn" aria-label="Open menu" aria-controls="side" aria-expanded="false">${icon('menu')}</button>
-      <img src="/assets/img/zenith-lockup-light.svg" alt="Zenith Advisory Services"><span style="width:44px"></span></header>
+      <img src="/assets/img/zenith-lockup-light.svg" alt="Zenith Advisory Services"><button type="button" class="compose-top" id="compose-top" aria-label="New email">${icon('mail')}</button></header>
     <div class="scrim" id="scrim"></div>
     <aside class="side" id="side">
       <a class="brand" href="#/"><img src="/assets/img/zenith-logo-light.svg" alt="Zenith Advisory Services"></a>
+      <button type="button" class="compose" id="compose">${icon('mail')}<span>New email</span></button>
       <nav aria-label="Back office">${NAV.map(([h, t, i]) => `<a href="${h}" data-nav="${h}">${icon(i)}<span>${t}</span>${h === '#/enquiries' && newEnq ? `<span class="badge">${newEnq}</span>` : ''}</a>`).join('')}</nav>
       <div class="who"><span class="av">ZA</span><div><strong class="small">${esc(data.settings.legal_name || 'Zenith Advisory Services')}</strong><small>Admin</small></div></div>
       <button class="logout" id="logout">${icon('out')}<span>Log out</span></button>
@@ -212,6 +213,8 @@ function renderShell() {
   $('#menu-btn').addEventListener('click', () => toggle(!document.body.classList.contains('menu-open')));
   $('#scrim').addEventListener('click', () => toggle(false));
   $('#side').addEventListener('click', (e) => { if (e.target.closest('a')) toggle(false); });
+  $('#compose').addEventListener('click', () => { toggle(false); composeDialog(); });
+  $('#compose-top').addEventListener('click', () => composeDialog());
   $('#logout').addEventListener('click', async () => { await api('POST', 'logout').catch(() => {}); data = null; renderLogin(); });
 }
 
@@ -450,10 +453,10 @@ function viewEditor(main, id, params) {
   const drawActions = () => {
     const a = $('#ed-actions');
     if (st.type === 'proforma') {
-      a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="pdf">${icon('down')}Save &amp; download PDF</button><button type="button" class="btn" data-save="draft">Save${existing ? ' changes' : ' as draft'}</button>`;
+      a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="email">${icon('mail')}Save &amp; email</button><button type="button" class="btn" data-save="pdf">${icon('down')}Save &amp; download PDF</button><button type="button" class="btn" data-save="draft">Save${existing ? ' changes' : ' as draft'}</button>`;
       $('#ed-hint').textContent = existing ? '' : `This proforma will be numbered ${data.settings.prefix_proforma || ''}${String(data.counters.proforma).padStart(3, '0')}.`;
     } else {
-      a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="issue">Save &amp; issue invoice</button><button type="button" class="btn" data-save="draft">Save as draft</button>`;
+      a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="issue-email">${icon('mail')}Issue &amp; email</button><button type="button" class="btn" data-save="issue">Save &amp; issue invoice</button><button type="button" class="btn" data-save="draft">Save as draft</button>`;
       $('#ed-hint').textContent = 'Drafts can be edited. Issuing gives the invoice its permanent number; after that, corrections are made with a credit note.';
     }
     $$('[data-save]', a).forEach((b) => b.addEventListener('click', () => save(b.dataset.save, b)));
@@ -511,6 +514,8 @@ function viewEditor(main, id, params) {
     else if (!lines.some((l) => l.unit_price > 0)) { $('#err-lines').textContent = 'Please enter a price.'; ok = false; }
     else if (lines.some((l) => l.discount > Math.round(parseQty(l.qty) * l.unit_price))) { $('#err-lines').textContent = 'A discount cannot be more than the line amount.'; ok = false; }
     if (!ok) { ($('[aria-invalid=true]', main) || $('#ld-0'))?.focus(); return; }
+    const emailAfter = mode === 'email' || mode === 'issue-email';
+    if (mode === 'issue-email') mode = 'issue';
     if (mode === 'issue') {
       const problems = taxInvoiceProblems(st);
       if (problems.block.length) { await confirmBox({ title: 'Before issuing a tax invoice', body: `The FTA requires these on a tax invoice: ${problems.block.join('; ')}.`, confirm: 'OK', cancel: false }); return; }
@@ -525,6 +530,8 @@ function viewEditor(main, id, params) {
       const fresh = docById(doc.id);
       if (mode === 'pdf') await pdfFor(fresh);
       toast(mode === 'issue' ? `Invoice ${fresh.number} issued.` : mode === 'pdf' ? `${fresh.number} saved and downloaded.` : 'Saved.');
+      // Open the email once the document page has replaced the editor
+      if (emailAfter) window.addEventListener('hashchange', () => emailDialog({ kind: fresh.type, doc: docById(fresh.id) }), { once: true });
       go(`#/documents/${doc.id}`);
     });
   }
@@ -927,9 +934,9 @@ const bytesToBase64 = (bytes) => {
   return btoa(bin);
 };
 
-function emailDialog({ kind, doc, payment }) {
+// Standard subject and wording for a document or receipt email
+function emailTemplate(kind, doc, payment) {
   const s = data.settings;
-  const record = payment || doc;
   const clientId = payment ? payment.client_id : doc.client_id;
   const c = data.clients.find((x) => x.id === clientId) || {};
   const cur = (doc?.currency) || s.currency || 'AED';
@@ -941,9 +948,18 @@ function emailDialog({ kind, doc, payment }) {
     balance: formatMoney(Math.max(0, payment ? payment.snapshot?.balance_after ?? b.balance : b.balance)), amount: payment ? formatMoney(payment.amount) : '',
     due_date: formatDate(target?.due_date), date: formatDate(payment ? payment.paid_on : doc.issue_date),
   };
-  const tkey = kind === 'credit_note' ? 'invoice' : kind;
-  const subject = fillTemplate(s[`email_${tkey}_subject`], vals);
-  const text = fillTemplate(s[`email_${tkey}_body`], vals);
+  if (kind === 'credit_note') {
+    const orig = docById(doc.related_id);
+    return { client: c, subject: `Credit note ${vals.number} from ${vals.company}`,
+      text: `Dear ${vals.name},\n\nPlease find attached credit note ${vals.number} for ${cur} ${vals.total}${orig?.number ? `, issued against invoice ${orig.number}` : ''}.\n\nIf you have any questions, simply reply to this email.` };
+  }
+  return { subject: fillTemplate(s[`email_${kind}_subject`], vals), text: fillTemplate(s[`email_${kind}_body`], vals), client: c };
+}
+
+function emailDialog({ kind, doc, payment }) {
+  const s = data.settings;
+  const clientId = payment ? payment.client_id : doc.client_id;
+  const { subject, text, client: c } = emailTemplate(kind, doc, payment);
   const plainSig = [s.email_signoff || 'Kind regards,', '', s.email_sign_name, s.email_sign_title, s.email_sign_department, s.legal_name || 'Zenith Advisory Services', [data.mail.from || s.email, s.email_sign_phone, s.website].filter(Boolean).join(' | ')]
     .filter((x, i) => i < 2 || String(x || '').trim()).join('\n') + (s.email_disclaimer ? `\n\n--\n${s.email_disclaimer}` : '');
   const view = payment ? buildReceiptView(payment, ctx()) : buildDocView(doc, ctx());
@@ -1376,6 +1392,104 @@ function vatFileDialog(x) {
       e.preventDefault();
       if (!$('#vf-filed').value) { $('#vf-err').textContent = 'Please enter the date you filed.'; return; }
       save({ filed_on: $('#vf-filed').value, reference: $('#vf-ref').value, paid_on: $('#vf-paid').value || null, boxes: r.boxes || x.boxes }, e.submitter);
+    });
+  });
+}
+
+// ------------------------------------------------------------------ compose (any page)
+// Opens a new email from anywhere. It starts from what is on screen: the client,
+// document or receipt being viewed is chosen for you, and can be changed.
+function composeContext() {
+  const [, kind, id] = (location.hash || '').replace(/^#/, '').split('?')[0].split('/');
+  const n = Number(id);
+  if (kind === 'clients' && n) return { clientId: n };
+  if (kind === 'documents' && n && docById(n)) return { clientId: docById(n).client_id, attach: `d${n}` };
+  if (kind === 'receipts' && n) { const p = data.payments.find((x) => x.id === n); if (p) return { clientId: p.client_id, attach: `p${n}` }; }
+  return {};
+}
+
+function composeDialog(start = composeContext()) {
+  if (!data.mail.configured) { toast('Email sending is not set up yet. See Business settings → Email.', 'error'); return; }
+  const s = data.settings;
+  const clients = data.clients.filter((c) => !c.archived || c.id === start.clientId);
+  let files = [];
+  let edited = false;
+  const attachOptions = (clientId) => {
+    if (!clientId) return '<option value="">No document</option>';
+    const docs = data.documents.filter((d) => d.client_id === clientId && d.number && !(d.type === 'invoice' && d.status === 'draft'));
+    const pays = data.payments.filter((p) => p.client_id === clientId);
+    return `<option value="">No document</option>${docs.map((d) => `<option value="d${d.id}">${esc(docLabel(d))} · ${money(d.total)}</option>`).join('')}${pays.map((p) => `<option value="p${p.id}">Receipt ${esc(p.receipt_number)} · ${money(p.amount)}</option>`).join('')}`;
+  };
+  const greeting = (c) => `Dear ${c ? (c.contact_name ? c.contact_name.trim().split(/\s+/)[0] : c.name) : ''},\n\n`;
+  openDialog(`<form id="cm" novalidate>
+    <div class="dlg-head"><h2 id="dlg-title">New email</h2><button type="button" class="btn btn-quiet btn-icon" data-close aria-label="Close">${icon('x')}</button></div>
+    <div class="dlg-body form">
+      <p class="small muted">From <strong>${esc(data.mail.from)}</strong></p>
+      <div class="field"><label for="cm-client">Client <span class="muted">(optional)</span></label><select id="cm-client"><option value="">No client, I will type the address</option>${clients.map((c) => `<option value="${c.id}" ${c.id === start.clientId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="cm-to">To</label><input id="cm-to" type="text" inputmode="email" placeholder="name@example.com"><span class="err" id="cm-err" role="alert"></span></div>
+      <div class="field"><label for="cm-cc">Cc <span class="muted">(optional)</span></label><input id="cm-cc" type="text" placeholder="Separate several addresses with commas"></div>
+      <div class="field"><label for="cm-doc">Attach a document</label><select id="cm-doc"></select><span class="hint">Choosing one fills in its standard wording, which you can change.</span></div>
+      <div class="field"><label for="cm-sub">Subject</label><input id="cm-sub"></div>
+      <div class="field"><label for="cm-text">Message</label><textarea id="cm-text" rows="10"></textarea></div>
+      <div class="field"><span class="label">Other attachments</span>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><label class="btn" for="cm-file">${icon('plus')}Add a file</label><input id="cm-file" type="file" class="sr-only" multiple accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.csv"><span id="cm-files" class="small"></span></div>
+        <span class="hint">PDF, image, Word, Excel or CSV, up to 4 MB in total.</span></div>
+      <p class="small muted">Your signature, logo and disclaimer are added automatically.</p>
+      <label class="check"><input type="checkbox" id="cm-copy" checked><span>Send me a copy</span></label>
+    </div>
+    <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-gold" type="submit">${icon('mail')}Send email</button></div></form>`, () => {
+    const client = () => data.clients.find((c) => c.id === Number($('#cm-client').value)) || null;
+    const picked = () => {
+      const v = $('#cm-doc').value;
+      if (v.startsWith('d')) { const doc = docById(Number(v.slice(1))); return { kind: doc.type, doc }; }
+      if (v.startsWith('p')) { const payment = data.payments.find((p) => p.id === Number(v.slice(1))); return { kind: 'receipt', payment }; }
+      return null;
+    };
+    const fillWords = () => {
+      if (edited) return;
+      const a = picked();
+      if (a) { const t = emailTemplate(a.kind, a.doc, a.payment); $('#cm-sub').value = t.subject; $('#cm-text').value = t.text; }
+      else { $('#cm-sub').value = ''; $('#cm-text').value = greeting(client()); }
+    };
+    const onClient = () => {
+      const c = client();
+      $('#cm-to').value = c?.email || '';
+      $('#cm-doc').innerHTML = attachOptions(c?.id);
+      fillWords();
+    };
+    const drawFiles = () => { $('#cm-files').innerHTML = files.map((f, i) => `<span class="chip" style="margin-right:4px">${esc(f.name)} <button type="button" class="btn-quiet" data-rm="${i}" aria-label="Remove ${esc(f.name)}" style="border:0;background:none;cursor:pointer">×</button></span>`).join(''); };
+    $('#cm-client').addEventListener('change', onClient);
+    $('#cm-doc').addEventListener('change', fillWords);
+    $('#cm-sub').addEventListener('input', () => { edited = true; });
+    $('#cm-text').addEventListener('input', () => { edited = true; });
+    $('#cm-file').addEventListener('change', (e) => { files = files.concat([...e.target.files]).slice(0, 2); e.target.value = ''; drawFiles(); });
+    $('#cm-files').addEventListener('click', (e) => { const b = e.target.closest('[data-rm]'); if (b) { files.splice(Number(b.dataset.rm), 1); drawFiles(); } });
+    onClient();
+    if (start.attach) { $('#cm-doc').value = start.attach; fillWords(); }
+    $('#cm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const to = $('#cm-to').value.trim();
+      const bad = (v) => v.split(/[,;]/).map((x) => x.trim()).filter(Boolean).some((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(x));
+      if (!to || bad(to) || bad($('#cm-cc').value)) { $('#cm-err').textContent = 'Please check the email address.'; $('#cm-to').focus(); return; }
+      if (!$('#cm-sub').value.trim() || !$('#cm-text').value.trim()) { $('#cm-err').textContent = 'Please add a subject and a message.'; return; }
+      if (files.reduce((a, f) => a + f.size, 0) > 4 * 1024 * 1024) { $('#cm-err').textContent = 'The files are too large. Keep them under 4 MB in total.'; return; }
+      await busy(e.submitter, async () => {
+        const a = picked();
+        const attachments = [];
+        if (a) {
+          const view = a.payment ? buildReceiptView(a.payment, ctx()) : buildDocView(a.doc, ctx());
+          const name = `${view.title} ${view.number} ${client()?.name || ''}`.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim() + '.pdf';
+          attachments.push({ filename: name, type: 'application/pdf', data: bytesToBase64(await makePdf(view)) });
+        }
+        for (const f of files) attachments.push({ filename: f.name, type: f.type, data: bytesToBase64(new Uint8Array(await f.arrayBuffer())) });
+        const c = client();
+        await api('POST', 'email', {
+          kind: a ? a.kind : 'general', document_id: a?.doc?.id || null, payment_id: a?.payment?.id || null, client_id: c?.id || null,
+          to, cc: $('#cm-cc').value, subject: $('#cm-sub').value, text: $('#cm-text').value, copy_me: $('#cm-copy').checked, attachments,
+        });
+        if (c && !c.email && !to.includes(',')) await api('PUT', `clients/${c.id}`, { ...c, email: to }).catch(() => {});
+        await reload(); dlg.close(); toast(`Email sent to ${to}.`); route();
+      });
     });
   });
 }

@@ -585,14 +585,18 @@ async function sendEmail(req: Request, body: any) {
   const documentId = Number(body.document_id) || null, paymentId = Number(body.payment_id) || null;
   let clientId = Number(body.client_id) || null;
   if (documentId) clientId = (await getDoc(q, documentId)).client_id;
-  let attachments: any[] = [];
-  let attachmentName = "";
-  if (body.attachment?.data) {
-    attachmentName = str(body.attachment.filename, 200).replace(/[\\/:*?"<>|]+/g, "") || "document.pdf";
-    const buf = Buffer.from(String(body.attachment.data), "base64");
-    if (buf.length > 4 * 1024 * 1024) throw new HttpError(400, "The attachment is too large.");
-    attachments = [{ filename: attachmentName, content: buf, contentType: "application/pdf" }];
-  }
+  // Up to three files: the document PDF and/or files chosen from the computer
+  const files = (Array.isArray(body.attachments) ? body.attachments : body.attachment?.data ? [body.attachment] : []).slice(0, 3);
+  const ALLOWED = /^(application\/pdf|image\/(png|jpeg)|application\/vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet)|text\/csv)$/;
+  let total = 0;
+  const attachments: any[] = files.filter((f: any) => f?.data).map((f: any) => {
+    const buf = Buffer.from(String(f.data), "base64");
+    total += buf.length;
+    const type = ALLOWED.test(String(f.type || "")) ? String(f.type) : "application/pdf";
+    return { filename: str(f.filename, 200).replace(/[\\/:*?"<>|]+/g, "") || "document.pdf", content: buf, contentType: type };
+  });
+  if (total > 6 * 1024 * 1024) throw new HttpError(400, "The attachments are too large. Keep them under 6 MB in total.");
+  const attachmentName = attachments.map((a) => a.filename).join(", ").slice(0, 500);
   const settings = await getSettings();
   const fromAddr = mailFrom(settings);
   const fromName = settings.email_from_name || settings.legal_name || "Zenith Advisory Services";
