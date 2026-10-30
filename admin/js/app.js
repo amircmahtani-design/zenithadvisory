@@ -946,7 +946,8 @@ function emailTemplate(kind, doc, payment) {
     name: c.contact_name ? c.contact_name.trim().split(/\s+/)[0] : (c.name || ''), company: s.legal_name || 'Zenith Advisory Services', currency: cur,
     number: payment ? payment.receipt_number : doc.number || '', total: formatMoney(target ? target.total : 0),
     balance: formatMoney(Math.max(0, payment ? payment.snapshot?.balance_after ?? b.balance : b.balance)), amount: payment ? formatMoney(payment.amount) : '',
-    due_date: formatDate(target?.due_date), date: formatDate(payment ? payment.paid_on : doc.issue_date),
+    // A proforma asks for payment on the day it is sent; its "valid until" date is only how long the quote stands
+    due_date: formatDate(kind === 'proforma' ? todayUAE() : target?.due_date), date: formatDate(payment ? payment.paid_on : doc.issue_date),
   };
   if (kind === 'credit_note') {
     const orig = docById(doc.related_id);
