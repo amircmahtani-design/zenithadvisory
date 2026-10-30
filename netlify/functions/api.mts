@@ -536,7 +536,8 @@ function transport() {
     host: Netlify.env.get("SMTP_HOST") || "smtp.gmail.com",
     port: Number(Netlify.env.get("SMTP_PORT") || 465),
     secure: Number(Netlify.env.get("SMTP_PORT") || 465) === 465,
-    auth: { user: Netlify.env.get("SMTP_USER"), pass: Netlify.env.get("SMTP_PASS") },
+    // Google shows app passwords in groups of four; the spaces are not part of it
+    auth: { user: String(Netlify.env.get("SMTP_USER") || "").trim(), pass: String(Netlify.env.get("SMTP_PASS") || "").replace(/\s+/g, "") },
   });
 }
 
@@ -614,6 +615,9 @@ async function sendEmail(req: Request, body: any) {
     if (Netlify.env.get("MAIL_TRANSPORT") === "test") console.log("TEST_MAIL " + info.message);
   } catch (e: any) {
     console.error("mail", e?.message);
+    if (/535|Username and Password not accepted|BadCredentials/i.test(String(e?.message))) {
+      throw new HttpError(502, "Google did not accept the email login. Check that SMTP_USER is the real mailbox (acm@zenithadvisory.ae) and SMTP_PASS is an app password created for that same account, then redeploy.");
+    }
     throw new HttpError(502, "The email could not be sent. Please check the email settings in Netlify and try again.");
   }
   const row = (await q(

@@ -13,7 +13,7 @@ const q = async (text: string, params: unknown[] = []) => (await db.pool.query(t
 export default async (req: Request) => {
   const settings = (await q(`SELECT data FROM settings WHERE id = 1`))[0]?.data || {};
   const test = Netlify.env.get("MAIL_TRANSPORT") === "test";
-  const user = Netlify.env.get("SMTP_USER"), pass = Netlify.env.get("SMTP_PASS");
+  const user = String(Netlify.env.get("SMTP_USER") || "").trim(), pass = String(Netlify.env.get("SMTP_PASS") || "").replace(/\s+/g, "");
   if (!vatConfigured(settings) || settings.vat_reminders === false) return new Response("VAT reminders off");
   if (!test && !(user && pass)) return new Response("Email not configured");
 
