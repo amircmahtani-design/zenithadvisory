@@ -627,3 +627,13 @@ ol.process{margin:0;padding:0;list-style:none}
 }
 .gem{display:none}
 @media (max-width:1179px){.nav-links a:not(.btn) > .gem{display:block}.nav-links a:not(.btn):last-child > .gem{display:none}}
+
+/* Homepage hero on phones: readable lede over the skyline, buttons given room */
+@media (max-width:1023px) and (orientation:portrait){
+  .hero::before{background:linear-gradient(180deg,rgb(10 19 38 / .88) 0%,rgb(10 19 38 / .78) 38%,rgb(10 19 38 / .55) 56%,rgb(10 19 38 / .12) 72%,rgb(10 19 38 / 0) 82%)}
+}
+@media (max-width:767px){
+  .hero .lede{color:#F4EFE6;font-weight:500;text-shadow:0 1px 2px rgb(10 19 38 / .9),0 0 18px rgb(10 19 38 / .75)}
+  .hero h1{text-shadow:0 2px 20px rgb(10 19 38 / .6)}
+  .hero .actions{margin-top:var(--s6)}
+}
