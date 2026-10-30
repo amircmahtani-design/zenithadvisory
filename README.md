@@ -54,7 +54,8 @@ Then open `https://zenithadvisory.ae/admin` (or `https://zenithadvisory.ae/offic
 - **CSV export**: Clients, Invoices, Receipts and Receivables each have *Export CSV*, which opens in Excel or Numbers.
 - **Backup**: *Business settings → Download a full backup (JSON)*.
 
-Before relying on invoices as tax invoices, have the template checked against current Federal Tax Authority requirements.
+- **FTA rules** (VAT Executive Regulation, Articles 59 and 60): tax invoices show every required particular, including per-line discount, taxable amount, VAT rate and VAT amount, with totals in AED. Issuing is blocked while your address, or a VAT-registered client's address, is missing; the currency must be AED while VAT registered; a warning appears when an invoice is issued more than 14 days after the date of supply. Tax credit notes show the original invoice, its value, the corrected value, the difference, the VAT on it and a required reason.
+- **E-invoicing**: from 1 July 2027, B2B and B2G invoices must go through an FTA-accredited e-invoicing service provider (businesses under AED 50 million appoint one by 31 March 2027). From then on, the PDFs are copies, not the legal invoice.
 
 ## Running locally
 

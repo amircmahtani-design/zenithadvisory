@@ -32,6 +32,7 @@ export function docTitle(type, supplier) {
 
 export function vatLabel(line, rate) {
   if (line.vat_treatment === 'standard') return `${bpToPercent(rate)}%`;
+  if (line.vat_treatment === 'zero') return '0%';
   return VAT_TREATMENTS[line.vat_treatment]?.short || '';
 }
 
@@ -62,20 +63,40 @@ export function buildDocView(doc, ctx) {
 
   const rows = doc.lines.map((l, i) => {
     const c = t.lines[i];
-    const unitNet = c.qty ? Math.round(c.net / c.qty) : 0;
+    const unitNet = doc.prices_include_vat ? Math.round((c.unit * 10000) / (10000 + c.rate)) : c.unit;
     return {
       n: String(i + 1), desc: l.description, details: l.details || '',
       qty: String(c.qty).replace(/\.0+$/, ''),
-      unit: formatMoney(unitNet), vat: vatLabel(l, c.rate), vatAmount: formatMoney(c.vat), amount: formatMoney(c.net),
+      unit: formatMoney(unitNet), discount: c.netDiscount ? formatMoney(c.netDiscount) : '–',
+      amount: formatMoney(c.net), vat: vatLabel(l, c.rate), vatAmount: formatMoney(c.vat), total: formatMoney(c.total),
     };
   });
+  const hasDiscount = t.discount > 0;
 
-  const totals = [['Subtotal', formatMoney(t.subtotal)]];
+  // Figures FTA asks for, all in AED: taxable value, VAT by rate, gross amount payable.
+  const totals = [];
+  const isCredit = doc.type === 'credit_note';
+  if (isCredit) {
+    const o = doc.snapshot?.original || {};
+    const origNet = Number.isFinite(o.subtotal) ? o.subtotal : related?.subtotal;
+    const before = Number.isFinite(o.credited_before) ? o.credited_before
+      : documents.filter((d) => d.type === 'credit_note' && d.related_id === doc.related_id && d.id < doc.id).reduce((a, d) => a + (d.subtotal || 0), 0);
+    if (Number.isFinite(origNet)) {
+      totals.push(['Value on original invoice (excl. VAT)', formatMoney(origNet)]);
+      if (before) totals.push(['Credited previously (excl. VAT)', `-${formatMoney(before)}`]);
+      totals.push(['Corrected value (excl. VAT)', formatMoney(origNet - before - t.subtotal)]);
+    }
+    totals.push(['Difference credited (excl. VAT)', formatMoney(t.subtotal)]);
+  } else {
+    totals.push(['Total excluding VAT', formatMoney(t.subtotal)]);
+    if (hasDiscount) totals.push(['Discount given (already deducted)', formatMoney(t.discount), 'note']);
+  }
+  const vatWord = isCredit ? 'VAT on difference' : 'VAT';
   const std = t.breakdown.filter((g) => g.treatment === 'standard');
-  if (std.length) std.forEach((g) => totals.push([`VAT (${bpToPercent(g.rate)}%)`, formatMoney(g.vat)]));
-  else totals.push(['VAT', formatMoney(0)]);
+  if (std.length) std.forEach((g) => totals.push([`${vatWord} (${bpToPercent(g.rate)}%)`, formatMoney(g.vat)]));
+  else totals.push([vatWord, formatMoney(0)]);
   t.breakdown.filter((g) => g.treatment !== 'standard').forEach((g) => totals.push([`${VAT_TREATMENTS[g.treatment].short} supplies`, formatMoney(g.net), 'note']));
-  totals.push([`Total (${cur})`, formatMoney(t.total), 'strong']);
+  totals.push([isCredit ? `Total credited (${cur})` : `Total including VAT (${cur})`, formatMoney(t.total), 'strong']);
 
   const bal = documentBalance(doc, documents, payments);
   if (doc.type !== 'credit_note' && (bal.paid || bal.credited)) {
@@ -109,7 +130,7 @@ export function buildDocView(doc, ctx) {
     meta, currency: cur,
     from: { heading: 'From', name: supplier.legal_name || '[ADD BUSINESS NAME]', lines: partyLines(supplier, { requireTrn: true }), contact: [supplier.email, supplier.phone].filter(Boolean) },
     to: { heading: doc.type === 'credit_note' ? 'Credit to' : 'Bill to', name: client.name || '[CLIENT NAME]', lines: partyLines(client, { placeholders: false }), contact: [client.contact_name, client.email].filter(Boolean) },
-    rows, totals, bank, terms, notes: doc.type === 'credit_note' ? '' : doc.notes || '', footer,
+    rows, hasDiscount, totals, bank, terms, notes: doc.type === 'credit_note' ? '' : doc.notes || '', footer,
     logo: supplier.logo_data_url || '',
   };
 }
@@ -166,8 +187,8 @@ export function renderHTML(v) {
     ${v.draft ? '<div class="p-watermark" aria-hidden="true">Draft</div>' : ''}
     <header class="p-head">${logoImg(v)}<div class="p-title"><h2>${esc(v.title)}</h2><p>No. <strong>${esc(v.number)}</strong></p>${v.meta.map(([k, x]) => `<p><span>${esc(k)}:</span> ${esc(x)}</p>`).join('')}</div></header>
     <div class="p-parties">${party(v.to)}${party(v.from)}</div>
-    <table class="p-table"><thead><tr><th>#</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th><th class="r">VAT</th><th class="r">Amount (${esc(v.currency)})</th></tr></thead>
-      <tbody>${v.rows.map((r) => `<tr><td>${r.n}</td><td><strong>${esc(r.desc)}</strong>${r.details ? `<small>${esc(r.details)}</small>` : ''}</td><td class="r">${esc(r.qty)}</td><td class="r">${esc(r.unit)}</td><td class="r">${esc(r.vat)}</td><td class="r">${esc(r.amount)}</td></tr>`).join('')}</tbody></table>
+    <div class="p-table-wrap"><table class="p-table"><thead><tr><th>#</th><th>Description</th><th class="r">Qty</th><th class="r">Unit price</th>${v.hasDiscount ? '<th class="r">Discount</th>' : ''}<th class="r">Taxable amount</th><th class="r">VAT rate</th><th class="r">VAT</th><th class="r">Total (${esc(v.currency)})</th></tr></thead>
+      <tbody>${v.rows.map((r) => `<tr><td>${r.n}</td><td><strong>${esc(r.desc)}</strong>${r.details ? `<small>${esc(r.details)}</small>` : ''}</td><td class="r">${esc(r.qty)}</td><td class="r">${esc(r.unit)}</td>${v.hasDiscount ? `<td class="r">${esc(r.discount)}</td>` : ''}<td class="r">${esc(r.amount)}</td><td class="r">${esc(r.vat)}</td><td class="r">${esc(r.vatAmount)}</td><td class="r">${esc(r.total)}</td></tr>`).join('')}</tbody></table></div>
     <dl class="p-totals">${v.totals.map(([k, x, s]) => `<div class="${s || ''}"><dt>${esc(k)}</dt><dd>${esc(x)}</dd></div>`).join('')}</dl>
     <div class="p-info">
       ${v.bank.length ? `<section><h4>Bank details</h4><dl>${v.bank.map(([k, x]) => `<div><dt>${esc(k)}</dt><dd>${val(x)}</dd></div>`).join('')}</dl></section>` : ''}

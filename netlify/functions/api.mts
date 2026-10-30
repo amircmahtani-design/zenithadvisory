@@ -266,6 +266,7 @@ async function saveSettings(body: any) {
   next.currency = (next.currency || "AED").toUpperCase().slice(0, 3);
   next.trn = String(next.trn || "").replace(/\s+/g, "");
   if (next.trn && !/^\d{15}$/.test(next.trn)) throw new HttpError(400, "A UAE TRN has 15 digits. Please check it, or leave it blank.");
+  if (next.vat_registered && next.trn && next.currency !== "AED") throw new HttpError(400, "Tax invoices must show amounts in AED, so the currency must be AED while you are VAT registered.");
   if ("logo_data_url" in body) {
     const logo = String(body.logo_data_url || "");
     if (logo && (!/^data:image\/(png|jpeg);base64,/.test(logo) || logo.length > 600000)) {
@@ -352,6 +353,10 @@ async function issueInvoice(id: number) {
     if (doc.type !== "invoice" || doc.status !== "draft") throw new HttpError(409, "Only draft invoices can be issued.");
     if (doc.total <= 0) throw new HttpError(400, "An invoice total must be more than zero.");
     const { settings, snap } = await snapshotFor(qq, doc);
+    if (settings.vat_registered && settings.trn) {
+      if (!String(settings.address || "").trim()) throw new HttpError(400, "A tax invoice must show your business address. Add it in Business settings first.");
+      if (snap.client.trn && !String(snap.client.address || "").trim()) throw new HttpError(400, "This client is VAT registered, so a tax invoice must show their address. Add it to the client first.");
+    }
     const number = await nextNumber(qq, "invoice", settings);
     await qq(`UPDATE documents SET status='issued', number=$2, snapshot=$3::jsonb, issued_at=now(), updated_at=now() WHERE id=$1`,
       [id, number, JSON.stringify(snap)]);
@@ -399,7 +404,9 @@ async function createCreditNote(id: number, body: any) {
     if (inv.type !== "invoice" || inv.status !== "issued") throw new HttpError(409, "Credit notes can only be raised against an issued invoice.");
     const settings = await getSettings(qq);
     const d = readDocBody({ ...body, client_id: inv.client_id, prices_include_vat: inv.prices_include_vat, lines: body.lines?.length ? body.lines : inv.lines }, settings);
-    const credited = (await qq(`SELECT coalesce(sum(total),0)::float8 AS s FROM documents WHERE type='credit_note' AND related_id=$1`, [id]))[0].s;
+    const prior = (await qq(`SELECT coalesce(sum(total),0)::float8 AS s, coalesce(sum(subtotal),0)::float8 AS n FROM documents WHERE type='credit_note' AND related_id=$1`, [id]))[0];
+    const credited = prior.s;
+    if (settings.vat_registered && settings.trn && !String(body.notes || "").trim()) throw new HttpError(400, "Please give a short reason. It is required on a tax credit note.");
     if (d.total > inv.total - credited) throw new HttpError(400, "The credit note is larger than the amount still credited on this invoice.");
     if (d.total <= 0) throw new HttpError(400, "A credit note must be more than zero.");
     const { snap } = await snapshotFor(qq, inv);
@@ -409,7 +416,7 @@ async function createCreditNote(id: number, body: any) {
          subtotal, vat_total, total, related_id, snapshot, issued_at)
        VALUES ('credit_note','issued',$1,$2,$3,$4,$5,$6::jsonb,$7,'',$8,$9,$10,$11,$12::jsonb,now()) RETURNING id`,
       [number, inv.client_id, d.issue_date, inv.currency, inv.prices_include_vat, JSON.stringify(d.lines), d.notes || `Credit against ${inv.number}`,
-        d.subtotal, d.vat_total, d.total, inv.id, JSON.stringify({ ...snap, original: { number: inv.number, issue_date: inv.issue_date } })],
+        d.subtotal, d.vat_total, d.total, inv.id, JSON.stringify({ ...snap, original: { number: inv.number, issue_date: inv.issue_date, subtotal: inv.subtotal, vat_total: inv.vat_total, total: inv.total, credited_before: prior.n } })],
     ))[0];
     return getDoc(qq, row.id);
   });

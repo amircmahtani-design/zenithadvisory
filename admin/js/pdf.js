@@ -140,17 +140,30 @@ async function header(pdf, k, F, view) {
   k.y = Math.min(top - 74, y) - 26;
 }
 
-function tableHeader(k, F, cols, currency) {
+// Right-aligned number columns, widths in points, laid out from the right edge.
+function lineColumns(view) {
+  const R = A4[0] - M;
+  const spec = [
+    ['qty', ['Qty'], 30], ['unit', ['Unit', 'price'], 58],
+    ...(view.hasDiscount ? [['discount', ['Discount'], 54]] : []),
+    ['amount', ['Taxable', 'amount'], 62], ['vat', ['VAT', 'rate'], 46], ['vatAmount', ['VAT', 'amount'], 54], ['total', ['Total', view.currency], 64],
+  ];
+  let x = R;
+  const cols = spec.reverse().map(([key, head, w]) => { const c = { key, head, x }; x -= w; return c; }).reverse();
+  return { cols, descX: M + 20, descW: x - 14 - (M + 20) };
+}
+
+function tableHeader(k, F, layout) {
   const R = A4[0] - M;
   k.rule(M, R, k.y, C.navy, 0.9);
-  const y = k.y - 13;
-  k.label('#', cols.n, y, { color: C.muted });
-  k.label('Description', cols.desc, y, { color: C.muted });
-  k.label('Qty', cols.qty, y, { color: C.muted, align: 'right' });
-  k.label('Unit price', cols.unit, y, { color: C.muted, align: 'right' });
-  k.label('VAT', cols.vat, y, { color: C.muted, align: 'right' });
-  k.label(`Amount (${currency})`, cols.amount, y, { color: C.muted, align: 'right' });
-  k.y = y - 8;
+  const y = k.y - 12;
+  k.label('#', M, y - 9, { color: C.muted });
+  k.label('Description', layout.descX, y - 9, { color: C.muted });
+  layout.cols.forEach((c) => {
+    const lines = c.head.length === 1 ? [c.head[0]] : c.head;
+    lines.forEach((t, i) => k.label(t, c.x, y - (lines.length === 1 ? 9 : i * 9), { color: C.muted, align: 'right', spacing: 0.6 }));
+  });
+  k.y = y - 17;
   k.rule(M, R, k.y);
 }
 
@@ -178,33 +191,30 @@ async function documentPdf(view) {
   k.y = Math.min(yA, yB) - 18;
 
   // Line items
-  const cols = { n: M, desc: M + 20, qty: R - 212, unit: R - 132, vat: R - 86, amount: R };
-  const descW = cols.qty - 34 - cols.desc;
-  tableHeader(k, F, cols, view.currency);
+  const layout = lineColumns(view);
+  const descW = layout.descW;
+  tableHeader(k, F, layout);
   for (const r of view.rows) {
-    const dl = k.wrap(r.desc, 9.3, descW, F.medium);
+    const dl = k.wrap(r.desc, 9, descW, F.medium);
     const xl = r.details ? k.wrap(r.details, 8, descW) : [];
     const h = 9 + dl.length * 12 + xl.length * 10.5 + 6;
     if (k.y - h < BOTTOM) {
       k.newPage(); watermark();
       k.text(`${view.title} ${view.number} (continued)`, M, k.y - 4, { size: 9, font: F.medium, color: C.navy });
       k.y -= 22;
-      tableHeader(k, F, cols, view.currency);
+      tableHeader(k, F, layout);
     }
     let y = k.y - 15;
-    k.text(r.n, cols.n, y, { size: 9, color: C.muted });
-    k.text(r.qty, cols.qty, y, { size: 9, align: 'right' });
-    k.text(r.unit, cols.unit, y, { size: 9, align: 'right' });
-    k.text(r.vat, cols.vat, y, { size: 9, align: 'right' });
-    k.text(r.amount, cols.amount, y, { size: 9, font: F.medium, align: 'right' });
-    dl.forEach((l) => { k.text(l, cols.desc, y, { size: 9.3, font: F.medium }); y -= 12; });
-    xl.forEach((l) => { k.text(l, cols.desc, y + 1, { size: 8, color: C.muted }); y -= 10.5; });
+    k.text(r.n, M, y, { size: 8.5, color: C.muted });
+    layout.cols.forEach((c) => k.text(r[c.key], c.x, y, { size: 8.5, font: c.key === 'total' ? F.medium : F.regular, align: 'right' }));
+    dl.forEach((l) => { k.text(l, layout.descX, y, { size: 9, font: F.medium }); y -= 12; });
+    xl.forEach((l) => { k.text(l, layout.descX, y + 1, { size: 8, color: C.muted }); y -= 10.5; });
     k.y -= h;
     k.rule(M, R, k.y);
   }
 
   // Totals
-  const tw = 230, tx = R - tw;
+  const tw = 270, tx = R - tw;
   const need = view.totals.length * 19 + 20;
   if (k.y - need < BOTTOM) { k.newPage(); watermark(); }
   k.y -= 10;

@@ -1,6 +1,6 @@
 // Zenith back office: single-page app (vanilla JS, hash routes).
 import {
-  VAT_TREATMENTS, toFils, formatMoney, formatDate, computeTotals, documentBalance, bpToPercent, percentToBp, addDays, todayUAE,
+  VAT_TREATMENTS, toFils, formatMoney, formatDate, computeTotals, documentBalance, bpToPercent, percentToBp, addDays, todayUAE, parseQty,
 } from './calc.js';
 import { buildDocView, buildReceiptView, renderHTML, docTitle } from './doc.js';
 import { downloadPdf, makePdf } from './pdf.js';
@@ -118,6 +118,22 @@ function setupGaps() {
   return gaps;
 }
 
+// What stops (block) or should give pause (warn) before issuing a tax invoice,
+// following Article 59 of the VAT Executive Regulation and Article 67 of the VAT law.
+function taxInvoiceProblems(st) {
+  const s = data.settings, block = [], warn = [];
+  if (!(s.vat_registered && s.trn)) return { block, warn };
+  if (!String(s.address || '').trim()) block.push('your business address (Business settings)');
+  if ((s.currency || 'AED') !== 'AED') block.push('amounts in AED (set the currency to AED in Business settings)');
+  const c = data.clients.find((x) => x.id === st.client_id);
+  if (c?.trn && !String(c.address || '').trim()) block.push(`the address of ${esc(c.name)}, because they are VAT registered`);
+  const supply = st.supply_date || st.issue_date;
+  const days = Math.round((Date.parse(st.issue_date) - Date.parse(supply)) / 86400000);
+  if (days > 14) warn.push(`Note: the date of supply is ${days} days before the invoice date. A tax invoice should be issued within 14 days of supply.`);
+  if (days < 0 && st.supply_date) warn.push('Note: the date of supply is after the invoice date. Please check it.');
+  return { block, warn };
+}
+
 // ------------------------------------------------------------------ dialogs
 function openDialog(html, onMount) {
   dlg.innerHTML = html;
@@ -129,12 +145,12 @@ function openDialog(html, onMount) {
 }
 dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 
-function confirmBox({ title, body, confirm = 'Confirm', danger = false }) {
+function confirmBox({ title, body, confirm = 'Confirm', danger = false, cancel = true }) {
   return new Promise((resolve) => {
     let answered = false;
     openDialog(`<div class="dlg-head"><h2 id="dlg-title">${esc(title)}</h2></div>
       <div class="dlg-body"><p class="muted">${body}</p></div>
-      <div class="dlg-foot"><button class="btn" data-close>Cancel</button><button class="btn ${danger ? 'btn-danger' : 'btn-navy'}" id="dlg-ok">${esc(confirm)}</button></div>`, () => {
+      <div class="dlg-foot">${cancel ? '<button class="btn" data-close>Cancel</button>' : ''}<button class="btn ${danger ? 'btn-danger' : 'btn-navy'}" id="dlg-ok">${esc(confirm)}</button></div>`, () => {
       $('#dlg-ok', dlg).addEventListener('click', () => { answered = true; dlg.close(); resolve(true); });
       dlg.addEventListener('close', () => { if (!answered) resolve(false); }, { once: true });
     });
@@ -353,7 +369,7 @@ function viewEditor(main, id, params) {
     notes: existing?.notes || '',
     payment_terms: existing?.payment_terms || s.payment_terms || '',
     lines: (existing?.lines || [{ description: '', details: '', qty: 1, unit_price: 0, vat_treatment: 'standard' }])
-      .map((l) => ({ ...l, _price: l.unit_price ? (l.unit_price / 100).toFixed(2) : '' })),
+      .map((l) => ({ ...l, _price: l.unit_price ? (l.unit_price / 100).toFixed(2) : '', _disc: l.discount ? (l.discount / 100).toFixed(2) : '' })),
   };
   const rate = s.default_vat_bp ?? 500;
   const title = existing ? `Edit ${existing.number || 'draft invoice'}` : `Create ${type === 'proforma' ? 'proforma' : 'invoice'}`;
@@ -410,15 +426,16 @@ function viewEditor(main, id, params) {
         <div class="field"><label class="mlabel" for="lp-${i}">Price (${esc(cur())})</label><input id="lp-${i}" data-k="_price" class="money-in" inputmode="decimal" value="${esc(l._price)}" placeholder="0.00"></div>
         <button type="button" class="btn btn-quiet btn-icon" data-del="${i}" aria-label="Remove line ${i + 1}" ${st.lines.length === 1 ? 'disabled' : ''}>${icon('trash')}</button>
         <div class="more"><div class="mini"><label for="lq-${i}">Quantity</label><input id="lq-${i}" data-k="qty" inputmode="decimal" value="${esc(l.qty)}"></div>
+          <div class="mini"><label for="lc-${i}">Discount (${esc(cur())})</label><input id="lc-${i}" data-k="_disc" class="money-in" inputmode="decimal" value="${esc(l._disc || '')}" placeholder="None"></div>
           <div class="mini"><label for="lv-${i}">VAT</label><select id="lv-${i}" data-k="vat_treatment">${vatOptions(l.vat_treatment || 'standard', rate)}</select></div></div>
         <div class="details field"><label class="sr-only" for="lx-${i}">Details</label><input id="lx-${i}" data-k="details" value="${esc(l.details || '')}" placeholder="Details shown under the description (optional)"></div>
       </div>`).join('');
   };
   const drawTotals = () => {
-    const lines = st.lines.map((l) => ({ ...l, unit_price: toFils(l._price) }));
+    const lines = st.lines.map((l) => ({ ...l, unit_price: toFils(l._price), discount: toFils(l._disc) }));
     const t = computeTotals(lines, st.prices_include_vat, rate);
     const std = t.breakdown.filter((g) => g.treatment === 'standard');
-    $('#ed-totals').innerHTML = `<div><span>Subtotal (${esc(cur())})</span><span>${formatMoney(t.subtotal)}</span></div>
+    $('#ed-totals').innerHTML = `${t.discount ? `<div class="muted"><span>Discount given</span><span>${formatMoney(t.discount)}</span></div>` : ''}<div><span>Total excl. VAT (${esc(cur())})</span><span>${formatMoney(t.subtotal)}</span></div>
       ${(std.length ? std : [{ rate, vat: 0 }]).map((g) => `<div><span>VAT (${bpToPercent(g.rate)}%)</span><span>${formatMoney(g.vat)}</span></div>`).join('')}
       <div class="grand"><span>Total (${esc(cur())})</span><span>${formatMoney(t.total)}</span></div>`;
   };
@@ -444,8 +461,8 @@ function viewEditor(main, id, params) {
   });
   linesEl.addEventListener('change', (e) => {
     if (e.target.dataset.k === 'vat_treatment') { st.lines[Number(e.target.closest('.line').dataset.i)].vat_treatment = e.target.value; drawTotals(); }
-    if (e.target.dataset.k === '_price' && e.target.value) {
-      const f = toFils(e.target.value); e.target.value = (f / 100).toFixed(2); st.lines[Number(e.target.closest('.line').dataset.i)]._price = e.target.value;
+    if ((e.target.dataset.k === '_price' || e.target.dataset.k === '_disc') && e.target.value) {
+      const f = toFils(e.target.value); e.target.value = (f / 100).toFixed(2); st.lines[Number(e.target.closest('.line').dataset.i)][e.target.dataset.k] = e.target.value;
     }
   });
   linesEl.addEventListener('click', (e) => {
@@ -479,13 +496,19 @@ function viewEditor(main, id, params) {
   async function save(mode, btn) {
     let ok = true;
     if (!st.client_id) { $('#err-client').textContent = 'Please choose a client, or add a new one.'; $('#ed-client').setAttribute('aria-invalid', 'true'); ok = false; }
-    const lines = st.lines.map((l) => ({ description: String(l.description || '').trim(), details: l.details, qty: l.qty, unit_price: toFils(l._price), vat_treatment: l.vat_treatment || 'standard' }))
+    const lines = st.lines.map((l) => ({ description: String(l.description || '').trim(), details: l.details, qty: l.qty, unit_price: toFils(l._price), discount: toFils(l._disc), vat_treatment: l.vat_treatment || 'standard' }))
       .filter((l) => l.description || l.unit_price);
     if (!lines.length) { $('#err-lines').textContent = 'Add a description and a price.'; ok = false; }
     else if (lines.some((l) => !l.description)) { $('#err-lines').textContent = 'Every line needs a description.'; ok = false; }
     else if (!lines.some((l) => l.unit_price > 0)) { $('#err-lines').textContent = 'Please enter a price.'; ok = false; }
+    else if (lines.some((l) => l.discount > Math.round(parseQty(l.qty) * l.unit_price))) { $('#err-lines').textContent = 'A discount cannot be more than the line amount.'; ok = false; }
     if (!ok) { ($('[aria-invalid=true]', main) || $('#ld-0'))?.focus(); return; }
-    if (mode === 'issue' && !(await confirmBox({ title: 'Issue this invoice?', body: 'It will receive its permanent number and can no longer be edited. Corrections are made with a credit note.', confirm: 'Issue invoice' }))) return;
+    if (mode === 'issue') {
+      const problems = taxInvoiceProblems(st);
+      if (problems.block.length) { await confirmBox({ title: 'Before issuing a tax invoice', body: `The FTA requires these on a tax invoice: ${problems.block.join('; ')}.`, confirm: 'OK', cancel: false }); return; }
+      const extra = problems.warn.length ? ` ${problems.warn.join(' ')}` : '';
+      if (!(await confirmBox({ title: 'Issue this invoice?', body: `It will receive its permanent number and can no longer be edited. Corrections are made with a credit note.${extra}`, confirm: 'Issue invoice' }))) return;
+    }
     const body = { type: st.type, client_id: st.client_id, issue_date: st.issue_date, due_date: st.due_date || null, supply_date: st.supply_date || null, prices_include_vat: st.prices_include_vat, lines, notes: st.notes, payment_terms: st.payment_terms };
     await busy(btn, async () => {
       let doc = existing ? await api('PUT', `documents/${existing.id}`, body) : await api('POST', 'documents', body);
@@ -629,7 +652,7 @@ function creditDialog(inv) {
         <div class="field"><label for="cn-amt">Amount ${inv.prices_include_vat ? 'including' : 'before'} VAT (${esc(cur())})</label><input id="cn-amt" class="money-in" inputmode="decimal"><span class="err" id="cn-err" role="alert"></span></div>
         <div class="field"><label for="cn-vat">VAT</label><select id="cn-vat">${vatOptions(firstVat, data.settings.default_vat_bp ?? 500)}</select></div>
       </div>
-      <div class="field"><label for="cn-reason">Reason</label><input id="cn-reason" placeholder="e.g. Agreed discount on phase 1"></div>
+      <div class="field"><label for="cn-reason">Reason <span class="muted">(shown on the credit note)</span></label><input id="cn-reason" placeholder="e.g. Agreed discount on phase 1"><span class="err" id="cn-rerr" role="alert"></span></div>
       <div class="totals" id="cn-tot"></div>
     </div>
     <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-navy" type="submit">Issue credit note</button></div></form>`, () => {
@@ -642,6 +665,7 @@ function creditDialog(inv) {
       const t = tot();
       if (t.total <= 0) { $('#cn-err').textContent = 'Please enter an amount.'; return; }
       if (t.total > room) { $('#cn-err').textContent = `The credit total cannot be more than ${money(room)}.`; return; }
+      if (!$('#cn-reason').value.trim()) { $('#cn-rerr').textContent = 'Please give a short reason. The FTA requires it on a tax credit note.'; $('#cn-reason').focus(); return; }
       await busy(e.submitter, async () => {
         const cn = await api('POST', `documents/${inv.id}/credit-note`, { lines: lines(), notes: $('#cn-reason').value });
         await reload(); dlg.close(); toast(`Credit note ${cn.number} issued.`); go(`#/documents/${cn.id}`);
@@ -976,7 +1000,10 @@ function viewSettings(main) {
       <div class="row3">${f('trn', 'Tax Registration Number (TRN)', s.trn, 'inputmode="numeric" placeholder="15 digits"')}
         <div class="field"><label for="s-vat">Default VAT rate (%)</label><input id="s-vat" inputmode="decimal" value="${bpToPercent(s.default_vat_bp ?? 500)}"><span class="hint">5% is the UAE standard rate. Zero-rated, exempt and out-of-scope lines can be chosen per line.</span></div>
         <div class="field"><label for="s-incl">Prices are usually entered</label><select id="s-incl"><option value="0" ${s.prices_include_vat ? '' : 'selected'}>Before VAT</option><option value="1" ${s.prices_include_vat ? 'selected' : ''}>Including VAT</option></select></div></div>
-      <div class="notice info">${icon('file')}<div class="small">Before relying on invoices as tax invoices, check the template against current Federal Tax Authority guidance with your accountant. Documents show placeholders such as [ADD TRN] until details are filled in.</div></div>
+      <div class="notice info">${icon('file')}<div class="small"><strong>FTA requirements</strong><br>When VAT registration is ticked and a TRN is entered, invoices and credit notes are laid out as the FTA requires (Articles 59 and 60 of the VAT Executive Regulation):
+        <ul class="fta-list"><li>Titled “Tax Invoice” or “Tax Credit Note”, with a sequential number and the date of issue</li><li>Your name, address and TRN, and the client’s name, address and TRN when they are VAT registered</li><li>Date of supply when it differs from the invoice date</li><li>For every line: description, quantity, unit price, any discount, taxable amount, VAT rate and VAT amount</li><li>Total excluding VAT, VAT and total payable, in AED</li><li>Credit notes: the original invoice number and date, its value, the corrected value, the difference, the VAT on it and the reason</li></ul>
+        An invoice cannot be issued while your address, or a VAT-registered client’s address, is missing. Issue each tax invoice within 14 days of the date of supply.</div></div>
+      <div class="notice">${icon('clock')}<div class="small"><strong>E-invoicing from 1 July 2027</strong><br>Invoices to UAE businesses and government will have to be sent through an FTA-accredited e-invoicing service provider. Businesses with revenue under AED 50 million must appoint one by 31 March 2027. From that date the PDF from here is a copy for your records and your client, not the legal invoice. Pick a provider before the deadline.</div></div>
     </section>
     <section class="card card-pad form"><h2 class="section-title">Bank details</h2>
       <div class="row2">${f('bank_name', 'Bank name', s.bank_name)}${f('account_name', 'Account holder', s.account_name)}</div>

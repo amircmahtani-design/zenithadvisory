@@ -44,12 +44,14 @@ export function lineRateBp(line, defaultBp) {
   return Number.isInteger(line.vat_rate_bp) ? line.vat_rate_bp : defaultBp;
 }
 
-// Computes one line. unit_price is in fils and is VAT-inclusive when pricesIncludeVat.
+// Computes one line. unit_price and discount are in fils and are VAT-inclusive when pricesIncludeVat.
 export function computeLine(line, pricesIncludeVat, defaultBp = 500) {
   const qty = parseQty(line.qty);
   const unit = Math.round(Number(line.unit_price) || 0);
   const rate = lineRateBp(line, defaultBp);
-  const gross = Math.round(qty * unit);
+  const before = Math.round(qty * unit);
+  const discount = Math.min(before, Math.max(0, Math.round(Number(line.discount) || 0)));
+  const gross = before - discount;
   let net, vat;
   if (pricesIncludeVat) {
     net = Math.round((gross * 10000) / (10000 + rate));
@@ -58,24 +60,27 @@ export function computeLine(line, pricesIncludeVat, defaultBp = 500) {
     net = gross;
     vat = Math.round((net * rate) / 10000);
   }
-  return { qty, unit, rate, net, vat, total: net + vat };
+  // Discount expressed on the same basis as the taxable amount (before VAT)
+  const netDiscount = pricesIncludeVat ? Math.round((discount * 10000) / (10000 + rate)) : discount;
+  return { qty, unit, rate, discount, netDiscount, net, vat, total: net + vat };
 }
 
 // Totals for a document plus a VAT breakdown by rate and treatment.
 export function computeTotals(lines, pricesIncludeVat, defaultBp = 500) {
-  let subtotal = 0, vatTotal = 0;
+  let subtotal = 0, vatTotal = 0, discountTotal = 0;
   const groups = new Map();
   const computed = (lines || []).map((l) => {
     const c = computeLine(l, pricesIncludeVat, defaultBp);
     subtotal += c.net;
     vatTotal += c.vat;
+    discountTotal += c.netDiscount;
     const key = `${l.vat_treatment || 'standard'}:${c.rate}`;
     const g = groups.get(key) || { treatment: l.vat_treatment || 'standard', rate: c.rate, net: 0, vat: 0 };
     g.net += c.net; g.vat += c.vat;
     groups.set(key, g);
     return c;
   });
-  return { lines: computed, subtotal, vat: vatTotal, total: subtotal + vatTotal, breakdown: [...groups.values()] };
+  return { lines: computed, subtotal, vat: vatTotal, total: subtotal + vatTotal, discount: discountTotal, breakdown: [...groups.values()] };
 }
 
 // Cleans user-supplied lines into the stored shape.
@@ -86,6 +91,7 @@ export function normaliseLines(lines, defaultBp = 500) {
       details: String(l.details ?? '').trim().slice(0, 1000),
       qty: parseQty(l.qty) || 1,
       unit_price: Math.max(0, Math.round(Number(l.unit_price) || 0)),
+      discount: Math.max(0, Math.round(Number(l.discount) || 0)),
       vat_treatment: VAT_TREATMENTS[l.vat_treatment] ? l.vat_treatment : 'standard',
       vat_rate_bp: l.vat_treatment === 'standard'
         ? (Number.isInteger(l.vat_rate_bp) && l.vat_rate_bp >= 0 && l.vat_rate_bp <= 10000 ? l.vat_rate_bp : defaultBp)
