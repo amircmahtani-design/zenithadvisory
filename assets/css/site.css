@@ -537,3 +537,76 @@ ol.process{margin:0;padding:0;list-style:none}
 .site-foot li a{overflow-wrap:anywhere}
 @media (max-width:767px){.site-foot .top{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
 @media (max-width:399px){.site-foot .top{grid-template-columns:minmax(0,1fr)}}
+
+/* =========================================================
+   Consistent centred layout
+   Titles, intros, cards, lists and portfolio text share one centre line.
+   Forms, legal pages and the desktop service table stay left-aligned.
+   ========================================================= */
+.head-split .aside,.center-head p,.prose,.prose p,.split>.stack-lg,.split>.stack-lg p{text-align:center;margin-inline:auto}
+.head-split .aside{justify-items:center}
+.split>.stack-lg{display:grid;justify-items:center}
+.col,.process li,.service{text-align:center;justify-items:center}
+.service svg.icon{margin-inline:auto}
+.col p,.process p,.service p{margin-inline:auto}
+/* Practice cards */
+.practice{text-align:center;justify-items:center}
+.practice .index{justify-self:center}
+.practice ul{width:100%}
+.practice li{padding-left:0}
+.practice li::before{display:none}
+.practice .btn{justify-self:center}
+/* Portfolio text */
+.work-row .work-card{text-align:center;justify-items:center}
+.work-row .work-card h3{justify-content:center}
+.case-card .case-body{text-align:center;justify-items:center}
+.case-card .case-body p{margin-inline:auto}
+.case-tags{justify-content:center}
+.case-card.featured{text-align:center}
+/* Screenshots without the browser bar: clean rounded image */
+.browser::before{display:none}
+.browser{border-radius:14px}
+
+@media (max-width:767px){
+  /* Heroes: centred and shorter on phones */
+  .hero{min-height:min(82svh,720px)}
+  .hero .wrap{padding-bottom:var(--s8)}
+  .hero-copy{justify-items:center;text-align:center}
+  .hero .eyebrow{justify-content:center}
+  .hero .eyebrow::before{display:none}
+  .hero .lede{margin-inline:auto}
+  .hero .actions{width:100%}
+  .scroll-cue{display:none!important}
+  .page-hero .wrap{justify-items:center;text-align:center}
+  .page-hero .crumbs{justify-content:center}
+  .page-hero h1,.page-hero .lede{margin-inline:auto}
+  .page-hero.has-art{min-height:min(76svh,660px)}
+  /* Advisory service rows */
+  .detail{text-align:center;justify-items:center}
+  .detail p{margin-inline:auto}
+  .detail ul{justify-items:center}
+  .detail li{padding-left:0}
+  .detail li::before{display:none}
+  /* Contact details and closing strip */
+  .contact-card .item{text-align:center;justify-items:center}
+  .contact-card .item p{margin-inline:auto}
+  .cta .wrap{text-align:center;justify-items:center}
+  .cta p{margin-inline:auto}
+  /* Footer */
+  .site-foot .top,.site-foot .about{text-align:center;justify-items:center}
+  .site-foot .about p{margin-inline:auto}
+  .site-foot .bottom{align-items:center;text-align:center}
+  /* Pager */
+  .pager-count{text-align:center}
+}
+@media (max-width:767px) and (orientation:portrait){
+  .page-hero.has-art{min-height:min(76svh,660px)}
+}
+
+/* Phones and tablets: solid header (no page text showing through) */
+@media (max-width:1179px){
+  .site-head,.site-head.solid{background:var(--navy-950)}
+  /* Menu tabs fill the screen */
+  .nav-links{display:flex;flex-direction:column;justify-content:flex-start;gap:var(--s3);padding:var(--s5) var(--s5) calc(var(--s6) + env(safe-area-inset-bottom))}
+  .nav-links a:not(.btn),.nav-links a:not(.btn)[aria-current="page"]{flex:1 1 0;height:auto;min-height:64px;max-height:120px;justify-content:center;border-radius:18px;font:600 clamp(1.15rem,1rem + 1.2vw,1.4rem)/1 var(--font-body);letter-spacing:.04em}
+}
