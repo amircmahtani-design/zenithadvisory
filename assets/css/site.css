@@ -171,8 +171,8 @@ em.gold,.gold{color:var(--gold)}
 .scroll-cue::after{content:"";width:1px;height:28px;background:linear-gradient(var(--gold),transparent)}
 @media (min-width:768px){.scroll-cue{display:none}}
 /* Upright phones and tablets use the portrait artwork with the copy in the dark sky */
-@media (min-width:768px) and (max-width:1023px) and (orientation:portrait){.hero .hero-media img{object-position:75% 62%}}
-@media (max-width:1023px) and (orientation:portrait){
+@media (min-width:768px) and (max-width:1366px) and (orientation:portrait){.hero .hero-media img{object-position:75% 62%}}
+@media (max-width:1366px) and (orientation:portrait){
   .hero{min-height:min(max(640px,100svh),1180px);align-items:start}
   .hero-media img{object-position:90% 100%}
   .hero::before{background:linear-gradient(180deg,rgb(10 19 38 / .82) 0%,rgb(10 19 38 / .6) 34%,rgb(10 19 38 / .15) 58%,rgb(10 19 38 / 0) 72%,rgb(10 19 38 / .35) 100%)}
@@ -200,7 +200,7 @@ em.gold,.gold{color:var(--gold)}
 .page-hero.has-art::before{background:linear-gradient(90deg,rgb(10 19 38 / .88) 0%,rgb(10 19 38 / .66) 30%,rgb(10 19 38 / .25) 48%,rgb(10 19 38 / 0) 62%),linear-gradient(180deg,rgb(10 19 38 / .45) 0%,rgb(10 19 38 / 0) 22%)}
 .page-hero.has-art .lede{color:rgb(244 239 230 / .9);max-width:38ch;text-shadow:0 1px 12px rgb(10 19 38 / .6)}
 .page-hero.has-art h1{text-shadow:0 2px 24px rgb(10 19 38 / .5)}
-@media (max-width:1023px) and (orientation:portrait){
+@media (max-width:1366px) and (orientation:portrait){
   .page-hero.has-art{min-height:min(max(600px,88svh),1100px);align-items:start}
   .page-hero.has-art .bg img{object-position:50% 100%}
   .page-hero.has-art::before{background:linear-gradient(180deg,rgb(10 19 38 / .9) 0%,rgb(10 19 38 / .78) 38%,rgb(10 19 38 / .4) 58%,rgb(10 19 38 / 0) 76%)}
@@ -629,7 +629,7 @@ ol.process{margin:0;padding:0;list-style:none}
 @media (max-width:1179px){.nav-links a:not(.btn) > .gem{display:block}.nav-links a:not(.btn):last-child > .gem{display:none}}
 
 /* Homepage hero on phones: readable lede over the skyline, buttons given room */
-@media (max-width:1023px) and (orientation:portrait){
+@media (max-width:1366px) and (orientation:portrait){
   .hero::before{background:linear-gradient(180deg,rgb(10 19 38 / .88) 0%,rgb(10 19 38 / .78) 38%,rgb(10 19 38 / .55) 56%,rgb(10 19 38 / .12) 72%,rgb(10 19 38 / 0) 82%)}
 }
 @media (max-width:767px){
