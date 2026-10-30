@@ -157,7 +157,7 @@ table.list a.rowlink:hover{text-decoration:underline}
 
 /* ---------- Forms ---------- */
 .form{display:grid;gap:var(--s5)}
-.field{display:grid;gap:6px;min-width:0}
+.field{display:grid;gap:6px;min-width:0;align-content:start}
 .field>label,.field>.label{font-size:.85rem;font-weight:500;color:var(--ink)}
 .field .hint{font-size:.8rem;color:var(--ink-3)}
 .field .err{font-size:.82rem;color:var(--danger)}
