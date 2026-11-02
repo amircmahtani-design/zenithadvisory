@@ -452,6 +452,9 @@ em.gold,.gold{color:var(--gold)}
 .site-foot li a{display:inline-block;padding-block:var(--s2);font-size:var(--step--1);text-decoration:none;color:var(--on-dark-2);transition:color var(--fast)}
 .site-foot li a:hover{color:var(--on-dark)}
 .site-foot .bottom{display:flex;flex-wrap:wrap;justify-content:space-between;gap:var(--s3);padding-block:var(--s5);border-top:1px solid var(--line-dark);font-size:var(--step--2);letter-spacing:.06em}
+/* the credit sits on its own line under the copyright, not as a third
+   item strung across the middle of that row */
+.site-foot .built-by{flex-basis:100%;order:3;color:var(--ink-dim,inherit);opacity:.75}
 
 /* ---------- Reveal ---------- */
 .js .reveal{opacity:0;transform:translateY(16px);transition:opacity 800ms var(--ease-out),transform 800ms var(--ease-out)}
