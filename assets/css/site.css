@@ -698,4 +698,4 @@ ol.process{margin:0;padding:0;list-style:none}
 .member h3{font-size:var(--step-1)}
 .member .role{font-weight:600;color:#8A6A2C;font-size:.95rem}
 .member-body p{margin:var(--s2) auto 0;color:var(--ink-2)}
-.team-disclosure{margin:var(--s7) auto 0;max-width:68ch;text-align:center;color:var(--ink-2)}
+.team-disclosure{margin:var(--s8) auto 0;max-width:64ch;text-align:center;color:var(--ink-3);font-size:.82rem;line-height:1.55}
