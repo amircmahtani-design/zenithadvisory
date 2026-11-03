@@ -696,4 +696,6 @@ ol.process{margin:0;padding:0;list-style:none}
 .member h3{font-size:var(--step-1)}
 .member .role{font-weight:600;color:#8A6A2C;font-size:.95rem}
 .member-body p{margin:var(--s2) auto 0;color:var(--ink-2)}
-.team-disclosure{margin:var(--s8) auto 0;max-width:90ch;text-align:center;color:var(--ink-3);font-size:12px;line-height:1.5;letter-spacing:.01em}
+.team-section{padding-bottom:var(--s5)}
+.team-disclosure{margin:var(--s9) 0 0 auto;max-width:46ch;text-align:right;color:var(--ink-3);font-size:11px;line-height:1.45;opacity:.85}
+@media (max-width:639px){.team-disclosure{margin-top:var(--s7);max-width:none}}
