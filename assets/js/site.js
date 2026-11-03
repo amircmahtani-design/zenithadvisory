@@ -110,7 +110,7 @@
         status.className = 'form-status error';
         status.textContent = (err && err.message && err.message !== 'Request failed' && err.message !== 'Failed to fetch')
           ? err.message
-          : 'Sorry, your enquiry could not be sent just now. Please try again, or email enquiries@zenithadvisory.ae directly.';
+          : 'Sorry, your enquiry could not be sent just now. Please try again, or email info@zenithadvisory.ae directly.';
         status.focus();
       }).then(function () { btn.removeAttribute('aria-busy'); });
     });

@@ -184,7 +184,7 @@ async function handleEnquiry(req: Request, context: Context) {
   }
   const key = ipKey(context);
   if (await rateLimited("enquiry", key, 5, 60)) {
-    return json({ error: "We have received several messages from you already. Please email enquiries@zenithadvisory.ae directly." }, 429);
+    return json({ error: "We have received several messages from you already. Please email info@zenithadvisory.ae directly." }, 429);
   }
   await recordEvent("enquiry", key);
   const service = ["advisory", "website", "both", "unsure"].includes(body.service) ? body.service : "";
