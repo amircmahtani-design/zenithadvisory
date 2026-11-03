@@ -692,8 +692,6 @@ ol.process{margin:0;padding:0;list-style:none}
 .member{display:flex;flex-direction:column;text-align:center;background:#fff;border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 1px 2px rgb(10 19 38 / .04),0 24px 48px -32px rgb(10 19 38 / .35)}
 .member .portrait{aspect-ratio:4/5;background:#D9D2C8;overflow:hidden}
 .member .portrait img{width:100%;height:100%;object-fit:cover;object-position:50% 22%}
-.member .portrait.empty{display:grid;place-items:center;background:radial-gradient(120% 90% at 50% 20%,#1B2B52 0%,#0A1326 70%)}
-.member .monogram{font:500 clamp(3.5rem,2.6rem + 3vw,5rem)/1 var(--font-display);letter-spacing:.06em;background:var(--gold-metal);-webkit-background-clip:text;background-clip:text;color:transparent}
 .member-body{display:grid;gap:var(--s2);padding:var(--s5) var(--s5) var(--s5);flex:1;align-content:start}
 .member h3{font-size:var(--step-1)}
 .member .role{font-weight:600;color:#8A6A2C;font-size:.95rem}
