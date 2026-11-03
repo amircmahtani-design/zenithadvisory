@@ -705,3 +705,12 @@ ol.process{margin:0;padding:0;list-style:none}
 @media (min-width:900px){.team-disclosure{white-space:nowrap}}
 @media (max-width:639px){.team-disclosure{margin-top:var(--s7)}}
 .contact-card .item.single{gap:var(--s3)}
+
+/* Enquiry form on phones: everything on the centre line, like the rest of the page */
+@media (max-width:767px){
+  .form-panel h2{text-align:center}
+  .form-panel .choices{justify-content:center}
+  .form-panel .choices legend{width:100%;text-align:center}
+  .form-panel .field label,.form-panel .err,.form-panel .form-note,.form-panel .form-status{text-align:center}
+  .form-panel form>div:last-child{display:flex;justify-content:center}
+}
