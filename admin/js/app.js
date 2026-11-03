@@ -1051,6 +1051,7 @@ function viewSettings(main) {
         ? `<div class="notice info">${icon('mail')}<div class="small">Emails are sent from <strong>${esc(data.mail.from)}</strong> through your Google Workspace account. Sent emails also appear in its Sent folder when you tick “Send me a copy”.</div></div>`
         : `<div class="notice">${icon('warn')}<div class="small"><strong>Email sending is not connected yet.</strong> Until it is, “Email to client” opens your own mail app with the text filled in, and you attach the downloaded PDF. Setup steps are in the README.</div></div>`}
       ${f('email_from_name', 'Sender name (shown in the client’s inbox)', s.email_from_name)}
+      <div class="field"><label for="s-enquiry_email">Website enquiries are emailed to</label><input id="s-enquiry_email" type="email" value="${esc(s.enquiry_email || '')}" placeholder="name@zenithadvisory.ae"><span class="hint">Every message from the contact form goes here, with Reply set to the person who wrote. It is also kept under Enquiries.</span></div>
       <h3 class="section-title" style="margin:8px 0 0">Signature</h3>
       <div class="row3">${f('email_signoff', 'Sign-off', s.email_signoff)}${f('email_sign_name', 'Name <span class="muted">(optional)</span>', s.email_sign_name, 'placeholder="A real team member, if any"')}${f('email_sign_title', 'Title <span class="muted">(optional)</span>', s.email_sign_title, 'placeholder="e.g. Finance Manager"')}</div>
       <div class="row2">${f('email_sign_department', 'Department', s.email_sign_department)}${f('email_sign_phone', 'Phone <span class="muted">(optional)</span>', s.email_sign_phone, 'type="tel"')}</div>
@@ -1099,7 +1100,7 @@ function viewSettings(main) {
       currency: v('currency'), invoice_due_days: v('invoice_due_days'), proforma_valid_days: v('proforma_valid_days'), payment_terms: v('payment_terms'),
       prefix_proforma: v('prefix_proforma'), prefix_invoice: v('prefix_invoice'), prefix_credit_note: v('prefix_credit_note'), prefix_receipt: v('prefix_receipt'),
       logo_data_url: logo,
-      email_from_name: v('email_from_name'), email_signoff: v('email_signoff'), email_sign_name: v('email_sign_name'), email_sign_title: v('email_sign_title'),
+      email_from_name: v('email_from_name'), enquiry_email: v('enquiry_email'), email_signoff: v('email_signoff'), email_sign_name: v('email_sign_name'), email_sign_title: v('email_sign_title'),
       email_sign_department: v('email_sign_department'), email_sign_phone: v('email_sign_phone'), email_disclaimer: v('email_disclaimer'),
       ...Object.fromEntries(['proforma', 'invoice', 'receipt', 'reminder'].flatMap((k) => [[`email_${k}_subject`, v(`email_${k}_subject`)], [`email_${k}_body`, v(`email_${k}_body`)]])),
       counters: Object.fromEntries(['proforma', 'invoice', 'credit_note', 'receipt'].map((k) => [k, Number(v(`n-${k}`))])),

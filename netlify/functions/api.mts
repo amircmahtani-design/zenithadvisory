@@ -192,18 +192,18 @@ async function handleEnquiry(req: Request, context: Context) {
     `INSERT INTO enquiries (service, name, email, company, phone, message, page, ip_hash) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [service, name, email, str(body.company, 200), str(body.phone, 60), message, str(body.page, 200), key],
   );
-  const resendKey = Netlify.env.get("RESEND_API_KEY"), to = Netlify.env.get("NOTIFY_EMAIL");
-  if (resendKey && to) {
-    context.waitUntil(fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: Netlify.env.get("NOTIFY_FROM") || "Zenith website <onboarding@resend.dev>",
-        to: [to], reply_to: email,
-        subject: `New website enquiry from ${name}`,
-        text: `${name} <${email}>\nCompany: ${str(body.company)}\nPhone: ${str(body.phone)}\nInterest: ${service || "not given"}\n\n${message}`,
-      }),
-    }).catch(() => {}));
+  // Email the enquiry to the address set in Business settings, through the same Workspace mailbox as invoices
+  const settings = await getSettings();
+  const to = validEmail(String(settings.enquiry_email || "")) ? settings.enquiry_email : Netlify.env.get("NOTIFY_EMAIL");
+  const interest = { advisory: "Strategic advisory", website: "Website design & development", both: "Both", unsure: "Not sure yet" }[service] || "Not given";
+  const text = `New enquiry from the website\n\nName: ${name}\nEmail: ${email}\nCompany: ${str(body.company) || "-"}\nPhone: ${str(body.phone) || "-"}\nInterested in: ${interest}\n\n${message}\n\nReply to this email to answer ${name} directly. It is also saved under Enquiries in the back office.`;
+  if (to && mailConfigured()) {
+    const user = String(Netlify.env.get("SMTP_USER") || "").trim();
+    context.waitUntil(transport().sendMail({
+      from: { name: "Zenith website", address: user || mailFrom(settings) }, to, replyTo: { name, address: email },
+      subject: `Website enquiry: ${name}${str(body.company) ? `, ${str(body.company)}` : ""}`, text,
+    }).then((info: any) => { if (Netlify.env.get("MAIL_TRANSPORT") === "test") console.log("TEST_MAIL " + info.message); })
+      .catch((e: any) => console.error("enquiry mail", e?.message)));
   }
   return json({ ok: true }, 201);
 }
@@ -250,7 +250,7 @@ const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
   email_sign_phone: "text", email_disclaimer: "text",
   email_proforma_subject: "text", email_proforma_body: "text", email_invoice_subject: "text", email_invoice_body: "text",
   email_receipt_subject: "text", email_receipt_body: "text", email_reminder_subject: "text", email_reminder_body: "text",
-  vat_first_start: "text", vat_first_end: "text", vat_period_months: "int", emirate: "text", vat_reminders: "bool",
+  vat_first_start: "text", vat_first_end: "text", vat_period_months: "int", emirate: "text", vat_reminders: "bool", enquiry_email: "text",
 };
 
 const EXP_COLS = `id, spent_on::text, supplier, supplier_trn, reference, description, category, kind, net::float8 AS net, vat::float8 AS vat,
@@ -319,6 +319,8 @@ async function saveSettings(body: any) {
   }
   if (next.vat_first_start && next.vat_first_end && next.vat_first_end < next.vat_first_start) throw new HttpError(400, "The first VAT period must end after it starts.");
   next.vat_period_months = Number(next.vat_period_months) === 1 ? 1 : 3;
+  next.enquiry_email = String(next.enquiry_email || "").trim();
+  if (next.enquiry_email && !validEmail(next.enquiry_email)) throw new HttpError(400, "Please check the address website enquiries are sent to.");
   if (next.vat_registered && next.trn && next.currency !== "AED") throw new HttpError(400, "Tax invoices must show amounts in AED, so the currency must be AED while you are VAT registered.");
   if ("logo_data_url" in body) {
     const logo = String(body.logo_data_url || "");

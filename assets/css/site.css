@@ -703,3 +703,4 @@ ol.process{margin:0;padding:0;list-style:none}
 .team-section{padding-bottom:var(--s5)}
 .team-disclosure{margin:var(--s9) 0 0 auto;max-width:46ch;text-align:right;color:var(--ink-3);font-size:11px;line-height:1.45;opacity:.85}
 @media (max-width:639px){.team-disclosure{margin-top:var(--s7);max-width:none}}
+.contact-card .item.single{gap:var(--s3)}
