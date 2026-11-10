@@ -469,7 +469,8 @@ function viewEditor(main, id, params) {
       $('#ed-hint').textContent = existing ? '' : nextNo ? `This proforma will be numbered ${nextNo}.` : 'Choose a client to see this proforma’s number.';
     } else {
       a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="issue-email">${icon('mail')}Issue &amp; email</button><button type="button" class="btn" data-save="issue">Save &amp; issue invoice</button><button type="button" class="btn" data-save="draft">Save as draft</button>`;
-      $('#ed-hint').textContent = 'Drafts can be edited. Issuing gives the invoice its permanent number; after that, corrections are made with a credit note.';
+      const nextNo = previewNumber('invoice', st.client_id);
+      $('#ed-hint').textContent = `Drafts can be edited. Issuing gives the invoice its permanent number${nextNo ? `, ${nextNo}` : ''}; after that, corrections are made with a credit note.`;
     }
     $$('[data-save]', a).forEach((b) => b.addEventListener('click', () => save(b.dataset.save, b)));
   };
