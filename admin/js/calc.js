@@ -140,3 +140,19 @@ export function documentBalance(doc, documents, payments) {
   else if (paid > 0) state = 'partial';
   return { paid, credited, balance, state };
 }
+
+// A short client code for per-client document numbers: "The Messy Parents Collection" -> "MPC".
+// Legal suffixes and articles are ignored; one-word names give their first three letters.
+const CODE_SKIP = new Set(['THE', 'AND', 'OF', 'LLC', 'L', 'C', 'FZ', 'FZE', 'FZCO', 'FZC', 'DMCC', 'LTD', 'LIMITED', 'INC', 'CO', 'COMPANY', 'GROUP', 'SA', 'SL', 'SRL', 'GMBH', 'PLC', 'LLP', 'IKE', 'EPE', 'OE', 'AE']);
+export function suggestClientCode(name, taken = []) {
+  const words = String(name || '').toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Z0-9& ]+/g, ' ').split(/\s+/).filter((w) => w && w !== '&' && !CODE_SKIP.has(w));
+  let base = words.length >= 2 ? words.slice(0, 4).map((w) => w[0]).join('') : (words[0] || 'CL').slice(0, 3);
+  if (base.length < 2) base = (base + 'X').slice(0, 2);
+  const used = new Set(taken.map((t) => String(t).toUpperCase()));
+  if (!used.has(base)) return base;
+  for (let i = 2; i < 100; i++) if (!used.has(base + i)) return base + i;
+  return base + Date.now() % 1000;
+}
+
+export const validClientCode = (code) => /^[A-Z0-9]{2,6}$/.test(String(code || ''));

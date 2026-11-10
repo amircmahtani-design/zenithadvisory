@@ -45,7 +45,8 @@ Then open `https://zenithadvisory.ae/admin` (or `https://zenithadvisory.ae/offic
 
 ## How documents work
 
-- **Proforma**: numbered when created (`PI-001`…). Editable until a payment is recorded or it is converted. Status: draft, sent, accepted, expired, converted; paid or part paid once payments are recorded. Always states that it is a proforma and not a tax invoice.
+- **Numbering**: per client by default. Each client has a short code (suggested from the name, editable until documents use it) and its own count, so the first proforma for The Messy Parents Collection is `PI-MPC-001` and its first invoice `INV-MPC-001`. Business settings can switch to one sequence for all clients (`PI-001`…). Numbers already given never change.
+- **Proforma**: numbered when created. Editable until a payment is recorded or it is converted. Status: draft, sent, accepted, expired, converted; paid or part paid once payments are recorded. Always states that it is a proforma and not a tax invoice.
 - **Invoice**: saved as a draft without a number, then **issued**, which gives it the next number (`INV-001`…) and freezes a snapshot of your business and client details. Issued invoices cannot be edited or deleted; corrections are made with a **credit note** (`CN-001`…). Titled “Tax Invoice” only when *Registered for VAT* is ticked and a TRN is entered.
 - **Receipt**: created only by recording a payment (`R-001`…), full or partial, against a proforma or an issued invoice. Payments taken on a proforma count towards the invoice it is converted into.
 - **VAT**: 5% by default and configurable. Each line can be standard rated, zero rated, exempt or outside the scope of VAT. Prices can be entered before VAT or including VAT. Amounts are stored in fils, so there are no rounding drifts.

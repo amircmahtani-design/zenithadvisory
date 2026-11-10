@@ -1,6 +1,6 @@
 // Zenith back office: single-page app (vanilla JS, hash routes).
 import {
-  VAT_TREATMENTS, toFils, formatMoney, formatDate, computeTotals, documentBalance, bpToPercent, percentToBp, addDays, todayUAE, parseQty,
+  VAT_TREATMENTS, toFils, formatMoney, formatDate, computeTotals, documentBalance, bpToPercent, percentToBp, addDays, todayUAE, parseQty, suggestClientCode, formatNumber,
 } from './calc.js';
 import { buildDocView, buildReceiptView, renderHTML, docTitle } from './doc.js';
 import { downloadPdf, makePdf } from './pdf.js';
@@ -111,6 +111,17 @@ function statusOf(d) {
 const chip = (s) => `<span class="chip ${s.cls}">${esc(s.label)}</span>`;
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const docLabel = (d) => `${TYPE_NAME[d.type]} ${d.number || '(draft)'}`;
+
+// The number the next document of this kind will get, following the numbering choice in Business settings
+function previewNumber(kind, clientId) {
+  const s = data.settings, prefix = s[`prefix_${kind}`] || '';
+  if (s.numbering === 'global') return formatNumber(prefix, data.counters[kind]);
+  const c = data.clients.find((x) => x.id === Number(clientId));
+  if (!c) return '';
+  const code = c.code || suggestClientCode(c.name, data.clients.map((x) => x.code).filter(Boolean));
+  const row = (data.client_counters || []).find((r) => r.client_id === c.id && r.kind === kind);
+  return formatNumber(`${prefix}${code}-`, row ? row.next_number : 1);
+}
 
 function setupGaps() {
   const s = data.settings, gaps = [];
@@ -454,7 +465,8 @@ function viewEditor(main, id, params) {
     const a = $('#ed-actions');
     if (st.type === 'proforma') {
       a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="email">${icon('mail')}Save &amp; email</button><button type="button" class="btn" data-save="pdf">${icon('down')}Save &amp; download PDF</button><button type="button" class="btn" data-save="draft">Save${existing ? ' changes' : ' as draft'}</button>`;
-      $('#ed-hint').textContent = existing ? '' : `This proforma will be numbered ${data.settings.prefix_proforma || ''}${String(data.counters.proforma).padStart(3, '0')}.`;
+      const nextNo = previewNumber('proforma', st.client_id);
+      $('#ed-hint').textContent = existing ? '' : nextNo ? `This proforma will be numbered ${nextNo}.` : 'Choose a client to see this proforma’s number.';
     } else {
       a.innerHTML = `<button type="button" class="btn btn-gold btn-lg" data-save="issue-email">${icon('mail')}Issue &amp; email</button><button type="button" class="btn" data-save="issue">Save &amp; issue invoice</button><button type="button" class="btn" data-save="draft">Save as draft</button>`;
       $('#ed-hint').textContent = 'Drafts can be edited. Issuing gives the invoice its permanent number; after that, corrections are made with a credit note.';
@@ -489,11 +501,11 @@ function viewEditor(main, id, params) {
     $$('[data-incl]', main).forEach((x) => x.setAttribute('aria-pressed', String(x === b))); drawTotals();
   }));
   $$('[data-type]', main).forEach((b) => b.addEventListener('click', () => go(`#/documents/new?type=${b.dataset.type}${st.client_id ? `&client=${st.client_id}` : ''}`)));
-  $('#ed-client').addEventListener('change', (e) => { st.client_id = Number(e.target.value) || ''; $('#err-client').textContent = ''; e.target.removeAttribute('aria-invalid'); });
+  $('#ed-client').addEventListener('change', (e) => { st.client_id = Number(e.target.value) || ''; $('#err-client').textContent = ''; e.target.removeAttribute('aria-invalid'); drawActions(); });
   $('#ed-newclient').addEventListener('click', () => clientDialog(null, (c) => {
     st.client_id = c.id;
     $('#ed-client').insertAdjacentHTML('beforeend', `<option value="${c.id}">${esc(c.name)}</option>`);
-    $('#ed-client').value = String(c.id); $('#err-client').textContent = '';
+    $('#ed-client').value = String(c.id); $('#err-client').textContent = ''; drawActions();
   }));
   $('#ed-issue').addEventListener('change', (e) => {
     st.issue_date = e.target.value;
@@ -734,13 +746,26 @@ function clientDialog(client, onSaved, prefill = {}) {
         <div class="field"><label for="cl-email">Email</label><input id="cl-email" type="email" value="${esc(c.email || '')}"></div></div>
       <div class="row2"><div class="field"><label for="cl-phone">Phone</label><input id="cl-phone" type="tel" value="${esc(c.phone || '')}"></div>
         <div class="field"><label for="cl-trn">Client TRN <span class="muted">(if VAT registered)</span></label><input id="cl-trn" inputmode="numeric" value="${esc(c.trn || '')}" placeholder="15 digits"></div></div>
+      <div class="field"><label for="cl-code">Client code <span class="muted">(for document numbers)</span></label><input id="cl-code" value="${esc(c.code || '')}" maxlength="6" autocapitalize="characters" style="max-width:160px;text-transform:uppercase"><span class="hint" id="cl-code-hint"></span></div>
       <div class="field"><label for="cl-addr">Billing address</label><textarea id="cl-addr" rows="3">${esc(c.address || '')}</textarea></div>
       <div class="field"><label for="cl-notes">Notes <span class="muted">(private)</span></label><textarea id="cl-notes" rows="2">${esc(c.notes || '')}</textarea></div>
     </div>
     <div class="dlg-foot"><button type="button" class="btn" data-close>Cancel</button><button class="btn btn-navy" type="submit">Save client</button></div></form>`, () => {
+    // Suggest a code from the name until one is typed; show what the numbers will look like
+    const others = data.clients.filter((x) => x.id !== client?.id).map((x) => x.code).filter(Boolean);
+    let typed = !!c.code;
+    const hint = () => {
+      if (!typed) $('#cl-code').value = $('#cl-name').value.trim() ? suggestClientCode($('#cl-name').value, others) : '';
+      const code = $('#cl-code').value.trim().toUpperCase();
+      $('#cl-code-hint').textContent = data.settings.numbering === 'global' ? 'Document numbers currently run in one sequence for all clients (Business settings).'
+        : code ? `Their documents will be numbered ${data.settings.prefix_proforma || ''}${code}-001, ${data.settings.prefix_invoice || ''}${code}-001 and so on.` : '';
+    };
+    $('#cl-name').addEventListener('input', hint);
+    $('#cl-code').addEventListener('input', () => { typed = !!$('#cl-code').value.trim(); hint(); });
+    hint();
     $('#cl').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const body = { name: $('#cl-name').value, contact_name: $('#cl-contact').value, email: $('#cl-email').value, phone: $('#cl-phone').value, trn: $('#cl-trn').value, address: $('#cl-addr').value, notes: $('#cl-notes').value, archived: client?.archived };
+      const body = { code: $('#cl-code').value.trim().toUpperCase(), name: $('#cl-name').value, contact_name: $('#cl-contact').value, email: $('#cl-email').value, phone: $('#cl-phone').value, trn: $('#cl-trn').value, address: $('#cl-addr').value, notes: $('#cl-notes').value, archived: client?.archived };
       if (!body.name.trim()) { $('#cl-err').textContent = 'Please enter a name.'; $('#cl-name').setAttribute('aria-invalid', 'true'); $('#cl-name').focus(); return; }
       e.submitter.setAttribute('aria-busy', 'true');
       try {
@@ -1041,7 +1066,9 @@ function viewSettings(main) {
       <div class="field"><label for="s-payment_terms">Default payment terms</label><textarea id="s-payment_terms" name="payment_terms" rows="2">${esc(s.payment_terms)}</textarea></div>
     </section>
     <section class="card card-pad form"><h2 class="section-title">Numbering</h2>
-      <p class="small muted">Numbers are given in sequence. Change the next number only when moving from another system, so numbers are never repeated.</p>
+      <div class="field"><label for="s-numbering">Number documents</label><select id="s-numbering" style="max-width:420px"><option value="client" ${s.numbering !== 'global' ? 'selected' : ''}>Per client (PI-MPC-001, PI-MPC-002…)</option><option value="global" ${s.numbering === 'global' ? 'selected' : ''}>One sequence for all clients (PI-001, PI-002…)</option></select>
+        <span class="hint">Per client, each client has a short code (set on the client, e.g. MPC) and its own count, so their first proforma is PI-MPC-001. Numbers already given never change.</span></div>
+      <p class="small muted">The prefixes below apply either way. The next numbers apply to the single sequence. Change a next number only when moving from another system, so numbers are never repeated.</p>
       <div class="table-wrap"><table class="list" style="min-width:420px"><thead><tr><th>Document</th><th>Prefix</th><th>Next number</th></tr></thead><tbody>
         ${[['proforma', 'Proforma'], ['invoice', 'Invoice'], ['credit_note', 'Credit note'], ['receipt', 'Receipt']].map(([k, t]) => `<tr style="cursor:default"><td>${t}</td><td><input aria-label="${t} prefix" id="s-prefix_${k}" value="${esc(s[`prefix_${k}`] ?? '')}" style="max-width:120px"></td><td><input aria-label="${t} next number" id="s-n-${k}" inputmode="numeric" value="${c[k]}" style="max-width:120px"></td></tr>`).join('')}
       </tbody></table></div>
@@ -1099,7 +1126,7 @@ function viewSettings(main) {
       bank_name: v('bank_name'), account_name: v('account_name'), iban: v('iban'), swift: v('swift'), account_number: v('account_number'), payment_instructions: v('payment_instructions'),
       currency: v('currency'), invoice_due_days: v('invoice_due_days'), proforma_valid_days: v('proforma_valid_days'), payment_terms: v('payment_terms'),
       prefix_proforma: v('prefix_proforma'), prefix_invoice: v('prefix_invoice'), prefix_credit_note: v('prefix_credit_note'), prefix_receipt: v('prefix_receipt'),
-      logo_data_url: logo,
+      logo_data_url: logo, numbering: v('numbering'),
       email_from_name: v('email_from_name'), enquiry_email: v('enquiry_email'), email_signoff: v('email_signoff'), email_sign_name: v('email_sign_name'), email_sign_title: v('email_sign_title'),
       email_sign_department: v('email_sign_department'), email_sign_phone: v('email_sign_phone'), email_disclaimer: v('email_disclaimer'),
       ...Object.fromEntries(['proforma', 'invoice', 'receipt', 'reminder'].flatMap((k) => [[`email_${k}_subject`, v(`email_${k}_subject`)], [`email_${k}_body`, v(`email_${k}_body`)]])),

@@ -6,7 +6,7 @@ import { getDatabase } from "@netlify/database";
 import nodemailer from "nodemailer";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import {
-  computeTotals, normaliseLines, documentBalance, formatNumber, todayUAE, addDays,
+  computeTotals, normaliseLines, documentBalance, formatNumber, todayUAE, addDays, suggestClientCode, validClientCode,
 } from "../../admin/js/calc.js";
 
 const db = getDatabase();
@@ -116,12 +116,31 @@ async function getSettings(qq: Q = q) {
   return (await qq(`SELECT data FROM settings WHERE id = 1`))[0]?.data || {};
 }
 
-async function nextNumber(qq: Q, kind: "proforma" | "invoice" | "credit_note" | "receipt", settings: any) {
+// Next document number. Per-client numbering (the default) gives PI-MPC-001 for the first proforma
+// to that client; "global" numbering keeps one sequence for everyone (PI-001).
+async function nextNumber(qq: Q, kind: "proforma" | "invoice" | "credit_note" | "receipt", settings: any, clientId?: number) {
+  const prefix = settings[`prefix_${kind}`] ?? "";
+  if (settings.numbering !== "global" && clientId) {
+    const code = await ensureClientCode(qq, clientId);
+    await qq(`INSERT INTO client_counters (client_id, kind) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [clientId, kind]);
+    const row = (await qq(`SELECT next_number FROM client_counters WHERE client_id = $1 AND kind = $2 FOR UPDATE`, [clientId, kind]))[0];
+    await qq(`UPDATE client_counters SET next_number = $3 WHERE client_id = $1 AND kind = $2`, [clientId, kind, row.next_number + 1]);
+    return formatNumber(`${prefix}${code}-`, row.next_number);
+  }
   const row = (await qq(`SELECT next_number FROM counters WHERE kind = $1 FOR UPDATE`, [kind]))[0];
   const n = row.next_number;
   await qq(`UPDATE counters SET next_number = $2 WHERE kind = $1`, [kind, n + 1]);
-  const prefix = settings[`prefix_${kind}`] ?? "";
   return formatNumber(prefix, n);
+}
+
+async function ensureClientCode(qq: Q, clientId: number) {
+  const c = (await qq(`SELECT id, name, code FROM clients WHERE id = $1 FOR UPDATE`, [clientId]))[0];
+  if (!c) throw new HttpError(404, "Client not found.");
+  if (c.code) return c.code;
+  const taken = (await qq(`SELECT code FROM clients WHERE code <> ''`)).map((r: any) => r.code);
+  const code = suggestClientCode(c.name, taken);
+  await qq(`UPDATE clients SET code = $2 WHERE id = $1`, [clientId, code]);
+  return code;
 }
 
 async function getDoc(qq: Q, id: number, lock = false) {
@@ -236,8 +255,9 @@ async function bootstrap() {
   ]);
   const emails = await q(`SELECT id, client_id, document_id, payment_id, kind, to_email, cc, subject, attachment, sent_at FROM email_log ORDER BY sent_at DESC`);
   const expenses = await q(`SELECT ${EXP_COLS} FROM expenses ORDER BY spent_on DESC, id DESC`);
+  const client_counters = await q(`SELECT client_id, kind, next_number FROM client_counters`);
   const vat_returns = await q(`SELECT period_start::text, period_end::text, boxes, filed_on::text, reference, paid_on::text, notes FROM vat_returns ORDER BY period_start DESC`);
-  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries, emails, expenses, vat_returns,
+  return { settings, counters: Object.fromEntries(counters.map((c: any) => [c.kind, c.next_number])), clients, documents, payments, enquiries, emails, expenses, vat_returns, client_counters,
     mail: { configured: mailConfigured(), from: mailFrom(settings) } };
 }
 
@@ -250,7 +270,7 @@ const SETTING_KEYS: Record<string, "text" | "bool" | "int"> = {
   email_sign_phone: "text", email_disclaimer: "text",
   email_proforma_subject: "text", email_proforma_body: "text", email_invoice_subject: "text", email_invoice_body: "text",
   email_receipt_subject: "text", email_receipt_body: "text", email_reminder_subject: "text", email_reminder_body: "text",
-  vat_first_start: "text", vat_first_end: "text", vat_period_months: "int", emirate: "text", vat_reminders: "bool", enquiry_email: "text",
+  vat_first_start: "text", vat_first_end: "text", vat_period_months: "int", emirate: "text", vat_reminders: "bool", enquiry_email: "text", numbering: "text",
 };
 
 const EXP_COLS = `id, spent_on::text, supplier, supplier_trn, reference, description, category, kind, net::float8 AS net, vat::float8 AS vat,
@@ -319,6 +339,7 @@ async function saveSettings(body: any) {
   }
   if (next.vat_first_start && next.vat_first_end && next.vat_first_end < next.vat_first_start) throw new HttpError(400, "The first VAT period must end after it starts.");
   next.vat_period_months = Number(next.vat_period_months) === 1 ? 1 : 3;
+  next.numbering = next.numbering === "global" ? "global" : "client";
   next.enquiry_email = String(next.enquiry_email || "").trim();
   if (next.enquiry_email && !validEmail(next.enquiry_email)) throw new HttpError(400, "Please check the address website enquiries are sent to.");
   if (next.vat_registered && next.trn && next.currency !== "AED") throw new HttpError(400, "Tax invoices must show amounts in AED, so the currency must be AED while you are VAT registered.");
@@ -347,7 +368,9 @@ function readClient(body: any) {
   const c = {
     name: str(body.name, 200), contact_name: str(body.contact_name, 200), email: str(body.email, 200),
     phone: str(body.phone, 60), address: str(body.address, 1000), trn: str(body.trn, 40).replace(/\s+/g, ""), notes: str(body.notes, 4000),
+    code: str(body.code, 6).toUpperCase().replace(/[^A-Z0-9]/g, ""),
   };
+  if (c.code && !validClientCode(c.code)) throw new HttpError(400, "The client code should be 2 to 6 letters or numbers, e.g. MPC.");
   if (!c.name) throw new HttpError(400, "Please enter the client or business name.");
   if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(c.email)) throw new HttpError(400, "Please check the client email address.");
   if (c.trn && !/^\d{15}$/.test(c.trn)) throw new HttpError(400, "A UAE TRN has 15 digits. Please check it, or leave it blank.");
@@ -360,7 +383,7 @@ async function createDocument(body: any) {
     const settings = await getSettings(qq);
     const d = readDocBody(body, settings);
     await getClient(qq, d.client_id);
-    const number = type === "proforma" ? await nextNumber(qq, "proforma", settings) : null;
+    const number = type === "proforma" ? await nextNumber(qq, "proforma", settings, d.client_id) : null;
     const due = d.due_date || addDays(d.issue_date, type === "proforma" ? settings.proforma_valid_days ?? 30 : settings.invoice_due_days ?? 14);
     const row = (await qq(
       `INSERT INTO documents (type, status, number, client_id, issue_date, due_date, supply_date, currency, prices_include_vat, lines, notes,
@@ -412,7 +435,7 @@ async function issueInvoice(id: number) {
       if (!String(settings.address || "").trim()) throw new HttpError(400, "A tax invoice must show your business address. Add it in Business settings first.");
       if (snap.client.trn && !String(snap.client.address || "").trim()) throw new HttpError(400, "This client is VAT registered, so a tax invoice must show their address. Add it to the client first.");
     }
-    const number = await nextNumber(qq, "invoice", settings);
+    const number = await nextNumber(qq, "invoice", settings, doc.client_id);
     await qq(`UPDATE documents SET status='issued', number=$2, snapshot=$3::jsonb, issued_at=now(), updated_at=now() WHERE id=$1`,
       [id, number, JSON.stringify(snap)]);
     return getDoc(qq, id);
@@ -465,7 +488,7 @@ async function createCreditNote(id: number, body: any) {
     if (d.total > inv.total - credited) throw new HttpError(400, "The credit note is larger than the amount still credited on this invoice.");
     if (d.total <= 0) throw new HttpError(400, "A credit note must be more than zero.");
     const { snap } = await snapshotFor(qq, inv);
-    const number = await nextNumber(qq, "credit_note", settings);
+    const number = await nextNumber(qq, "credit_note", settings, inv.client_id);
     const row = (await qq(
       `INSERT INTO documents (type, status, number, client_id, issue_date, currency, prices_include_vat, lines, notes, payment_terms,
          subtotal, vat_total, total, related_id, snapshot, issued_at)
@@ -505,7 +528,7 @@ async function createPayment(body: any) {
     if (amount > bal.balance) throw new HttpError(400, `The amount is more than the balance due (${(bal.balance / 100).toFixed(2)}).`);
     const paid_on = isDate(body.paid_on) ? body.paid_on : todayUAE();
     const { settings, snap } = await snapshotFor(qq, doc);
-    const receipt = await nextNumber(qq, "receipt", settings);
+    const receipt = await nextNumber(qq, "receipt", settings, doc.client_id);
     const snapshot = {
       ...snap,
       document: { type: doc.type, number: doc.number, issue_date: doc.issue_date, total: doc.total, currency: doc.currency },
@@ -670,14 +693,20 @@ export default async (req: Request, context: Context) => {
       case "clients": {
         if (method === "POST" && !idPart) {
           const c = readClient(body);
-          return json((await q(`INSERT INTO clients (name, contact_name, email, phone, address, trn, notes) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-            [c.name, c.contact_name, c.email, c.phone, c.address, c.trn, c.notes]))[0], 201);
+          if (!c.code) c.code = suggestClientCode(c.name, (await q(`SELECT code FROM clients WHERE code <> ''`)).map((r: any) => r.code));
+          return json((await q(`INSERT INTO clients (name, contact_name, email, phone, address, trn, notes, code) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+            [c.name, c.contact_name, c.email, c.phone, c.address, c.trn, c.notes, c.code]))[0], 201);
         }
         if (method === "PUT" && id) {
           const c = readClient(body);
+          if (c.code) {
+            const prior = (await q(`SELECT code FROM clients WHERE id = $1`, [id]))[0];
+            const used = (await q(`SELECT 1 FROM documents WHERE client_id = $1 AND number LIKE '%' || $2 || '-%' LIMIT 1`, [id, prior?.code || "\u0000"])).length;
+            if (prior?.code && prior.code !== c.code && used) throw new HttpError(409, `This client already has documents numbered with ${prior.code}, so its code cannot change.`);
+          }
           const row = (await q(`UPDATE clients SET name=$2, contact_name=$3, email=$4, phone=$5, address=$6, trn=$7, notes=$8,
-              archived=$9, updated_at=now() WHERE id=$1 RETURNING *`,
-            [id, c.name, c.contact_name, c.email, c.phone, c.address, c.trn, c.notes, !!body.archived]))[0];
+              archived=$9, code=COALESCE(NULLIF($10, ''), code), updated_at=now() WHERE id=$1 RETURNING *`,
+            [id, c.name, c.contact_name, c.email, c.phone, c.address, c.trn, c.notes, !!body.archived, c.code]))[0];
           if (!row) throw new HttpError(404, "Client not found.");
           return json(row);
         }
@@ -743,6 +772,7 @@ export default async (req: Request, context: Context) => {
     return json({ error: "Not found" }, 404);
   } catch (e: any) {
     if (e instanceof HttpError) return json({ error: e.message }, e.status);
+    if (e?.code === "23505" && String(e?.constraint || "").includes("clients_code")) return json({ error: "That client code is already used by another client." }, 409);
     if (e?.code === "23505") return json({ error: "That document number is already in use. Check the next numbers in Business settings." }, 409);
     console.error(e);
     return json({ error: "Something went wrong on the server. Please try again." }, 500);
