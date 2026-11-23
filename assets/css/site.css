@@ -274,6 +274,7 @@ em.gold,.gold{color:var(--gold)}
 @media (min-width:640px){.work-grid{grid-template-columns:repeat(2,1fr)}}
 @media (min-width:1024px){.work-grid{grid-template-columns:repeat(3,1fr)}.work-grid.five{grid-template-columns:repeat(6,1fr)}.work-grid.five>*{grid-column:span 2}.work-grid.five>:nth-child(-n+2){grid-column:span 3}}
 @media (min-width:640px) and (max-width:1023px){.work-grid.five>:last-child{grid-column:1 / -1}}
+@media (min-width:1024px){.work-grid.two{grid-template-columns:repeat(2,1fr);max-width:980px;margin-inline:auto}}
 .work-card{display:grid;gap:var(--s4);align-content:start;text-decoration:none;color:inherit}
 .work-card .frame{position:relative;aspect-ratio:16/10;overflow:hidden;border-radius:var(--radius);background:var(--navy-800);box-shadow:0 0 0 1px var(--line-dark)}
 .ivory .work-card .frame,.paper .work-card .frame{box-shadow:0 0 0 1px var(--line)}
